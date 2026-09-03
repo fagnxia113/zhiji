@@ -1,45 +1,57 @@
-> **Note:** The team is now building **[char](https://char.com)**. **anarlog** remains open-source, MIT-licensed, and maintained as the local-first meeting notetaker in this repo.
+# 知记（Zhiji）
 
-![anarlog](https://repository-images.githubusercontent.com/900550981/a4267a9f-414b-4c36-965c-419313ce2417)
+**本地优先的个人工作台。** 开会、跟进行动项、翻问答、写周报——这些零散工作在一处沉淀：录音、转写、说话人区分、纪要、待办、问答记录全部保存在本地 SQLite 数据库里，可整库导出 Markdown、每日自动备份。
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/fastrepl/anarlog)
+只有「智能纪要 / 会议问答 / 周报汇总」这类需要大模型理解的任务，才会用**你自己的 API 密钥**调用任意 OpenAI 兼容服务（自带 Key，服务商任选）。无账号、无注册、无遥测、无云端同步。
 
-# anarlog
+## 功能一览
 
-An open-source AI meeting notetaker that is local-first, privacy-first, and yours to fork.
+- **一键录音**：麦克风 + 可选系统声音混音；实时字幕（本地引擎）；自动保存，断录可恢复；录音防睡眠
+- **离线转写**：本地中文语音模型（SenseVoice 生态），隐私不离开电脑；说话人区分后生成带时间戳的对话时间线，发言人可改名
+- **智能纪要**：6 种纪要模板 + 会前背景注入；超长会议自动分段生成再合并，不丢上下文；AI 自动命名
+- **行动项待办**：纪要自动提取行动项（负责人 / 截止日），到期系统通知；与会议互跳，单独待办视图跟进
+- **会议问答**：对单场会议任意追问（转写 + 纪要 + 笔记 + 会前背景），支持多轮
+- **周报汇总**：一键把一周会议的纪要 / 待办汇总成个人周报
+- **音文联动**：点击纪要 / 转写中的时间戳跳转回放原录音
+- **全局搜索（Ctrl+F）/ 深色模式 / 系统托盘 / 全局快捷键（Ctrl+Shift+K）/ 开机自启**
 
-Granola, rearranged.
+## 数据与隐私
 
-## How to use it
+- 数据（录音 / 转写 / 纪要 / 待办 / 问答）全部存本地 SQLite，说话人时间线、会前背景、笔记一并入档
+- 每日自动备份（保留最近 2 份）+ 手动备份 / 恢复；备份与数据目录可迁到自定义位置（如网盘同步目录）
+- 整库一键导出 Markdown
+- 仅纪要 / 问答 / 周报这类理解任务走云端大模型，且必须由你提供 API Key——**代码中不内置任何服务端**
 
-Download the latest release for your platform:
+## 技术栈与平台
 
-→ [github.com/fastrepl/anarlog/releases/latest](https://github.com/fastrepl/anarlog/releases/latest)
+- Tauri 2 · React · TypeScript · Rust · SQLite（rusqlite）
+- 语音：本地转写接入 FunASR / SenseVoice 生态（可完全离线），也支持云端 ASR 服务商
+- 说话人分离：本地引擎或云端 diarization，可配置
+- 平台：Windows（NSIS 安装包），支持应用内自动更新
 
-Open it and join a meeting. anarlog records, transcribes locally, and stores its canonical meeting data in a local SQLite database. Export Markdown when it fits your workflow. Bring your own LLM: OpenAI, Anthropic, Gemini, OpenRouter, Ollama, LM Studio, or anything OpenAI-compatible.
+> 设计原则（个人项目，明确取舍）：**安全 > 顺手 > 便宜 > 少维护**。定位个人工作台而非通用笔记：只做「会议 → 纪要 → 待办 → 问答 → 周报」这一条主线，不做协作与商业化功能。
 
-To self-host, clone the repo, build it, and run it.
+## 安装与更新
 
-## Why use it
+从 [Releases](https://github.com/fagnxia113/zhiji/releases) 下载最新 `ZhiJi_<版本>_x64-setup.exe` 安装。后续版本可继续在应用内自动更新（updater 清单走镜像加速）。
 
-- **Your data, your device.** Sessions, notes, and transcripts are stored locally in SQLite. Attachments and recordings remain local files, and you can export Markdown when you need it.
-- **Local transcription.** Transcription runs on-device, so audio never leaves your machine.
-- **Bring your own AI.** Use any LLM provider, including OpenAI-compatible services and local models.
-- **Open source, MIT.** Fork it, sell it, or self-host it.
-- **Optional cloud features.** You can use local or bring-your-own-key workflows, or opt into hosted AI, encrypted CloudSync, and sharing when those fit your workflow.
+## 构建
 
-## Name history
+云端 CI（GitHub Actions，windows-latest）会在 push 到 `main` 时自动跑前端构建 + Rust 编译检查 + 引擎语法检查；push `v*` tag 时额外执行 NSIS 打包并发布 Release（含签名安装包与自动更新清单）。因此常规开发不需要本机 Rust/MSVC 环境，安装包请以 Releases 产物为准。
 
-**anarlog** started as **Hyprnote**, then briefly used the **char** name.
+如需本地调试：
 
-We later split the work into two projects. **[char](https://char.com)** is the team's current productivity app. **anarlog** is this open-source, local-first meeting notetaker.
+```bash
+pnpm install                 # 仓库根：workspace 内只含 apps/desktop
+pnpm --filter @zhiji/desktop tauri dev
+```
 
-This repository is not the current char codebase, and anarlog is not being retired. It keeps the open-source path: MIT-licensed, forkable, self-hostable, and built for local notes you control.
+本地跑 Rust 需要 MSVC 工具链；发布流程见 `RELEASE.md`。
 
-If you came here from Granola, welcome. If you came here from Hyprnote, welcome back.
+## 开源
 
-Either way, it's yours.
+[MIT](./LICENSE)。个人维护项目，求质量不求速度：
 
----
-
-**License:** MIT · **Maintainers:** [fastrepl](https://github.com/fastrepl)
+- 欢迎提 Issue 描述使用问题与期望；功能建议请说明使用场景
+- PR 前建议先开 Issue 讨论，避免返工
+- 坚持「少维护」原则：新功能需低长期维护成本、不引入云依赖
