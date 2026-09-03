@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["apps/desktop/src-tauri"]
+
+[profile.dev]
+incremental = true
+opt-level = 0
+debug = true
+
+[profile.dev.package."*"]
+opt-level = 1
+debug = false

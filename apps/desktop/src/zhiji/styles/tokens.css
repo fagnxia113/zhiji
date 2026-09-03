@@ -1,0 +1,149 @@
+/* 设计令牌：现代 Windows 11 (Fluent 2) 桌面风。
+   - 强调色 = 微信绿 #07C160；中性灰阶带微冷调（Fluent 层叠）
+   - Segoe UI 系统字体栈（Windows 原生观感关键）
+   - 圆角克制（控件 6 / 面板 10）；柔和分层阴影；Mica 半透明
+   - 明暗双主题；4px 间距网格
+   为兼容既有组件引用，保留 --brand-* 作为现代蓝的别名。 */
+
+:root {
+  /* —— 强调色（微信绿）—— */
+  --accent:            #07C160;
+  --accent-hover:      #06AD56;
+  --accent-pressed:    #059A4C;
+  --accent-subtle:     #E7F7EE;   /* 浅绿底：选中态 / soft bg */
+  --accent-text:       #07C160;
+  --accent-ring:       rgba(7, 193, 96, .30);
+
+  /* —— 兼容别名（既有组件引用，统一映射到现代蓝）—— */
+  --brand-from:        var(--accent);
+  --brand-to:          var(--accent);
+  --brand-grad:        var(--accent);
+  --brand-solid:       var(--accent);
+  --brand-solid-hover: var(--accent-hover);
+  --brand-soft-bg:     var(--accent-subtle);
+  --brand-soft-fg:     var(--accent-text);
+  --brand-hover-bg:    var(--accent-subtle);
+  --brand-ring:        var(--accent-ring);
+
+  /* —— 中性背景（微冷，Fluent 层叠）—— */
+  --bg-app:      #F3F3F3;   /* 应用底层（Mica 基色） */
+  --bg-surface:  #FFFFFF;   /* 卡片 / 侧栏 / 内容面 */
+  --bg-subtle:   #FAFAFA;   /* 次级底（列表 / 输入框底） */
+  --bg-inset:    #F0F0F0;   /* 凹陷 / 禁用底 */
+  --bg-overlay:  rgba(0, 0, 0, .4);
+
+  /* Mica / 亚克力半透明（标题栏、侧栏） */
+  --mica:        rgba(243, 243, 243, .82);
+  --mica-strong: rgba(255, 255, 255, .65);
+
+  /* —— 文本色阶 —— */
+  --text-strong:   #1B1B1B;
+  --text-default:  #2B2B2B;
+  --text-muted:    #5E5E5E;
+  --text-faint:    #6B6B6B;   /* 提对比至 ≥4.5:1（原 #8A8A8A ≈3.5:1 不达标） */
+  --text-disabled: #B7B7B7;
+  --text-inverse:  #FFFFFF;
+
+  /* —— 边框 —— */
+  --border-subtle:  #ECECEC;
+  --border-default: #DADADA;
+  --border-strong:  #BFBFBF;
+
+  /* 旧组件兼容别名：统一指向当前语义令牌，避免主题切换时出现透明样式。 */
+  --border-color: var(--border-default);
+  --bg-primary: var(--bg-surface);
+  --bg-secondary: var(--bg-subtle);
+  --bg-hover: var(--bg-inset);
+  --text-primary: var(--text-strong);
+  --radius-card: var(--radius-lg);
+  --accent-border: color-mix(in srgb, var(--accent) 30%, var(--border-subtle));
+
+  /* —— 状态色（Win11 语义色，稍柔）—— */
+  --success:    #10893E; --success-bg: #E6F4EA; --success-fg: #0E7009;
+  --warning:    #B7791F; --warning-bg: #FDF3DC; --warning-fg: #8A5A00;
+  --danger:     #C42B1C; --danger-bg:  #FDECEA; --danger-fg:  #B10E00; --danger-hover-bg: #FBD9D4;
+  --info:       #0F6CBD; --info-bg:    #EAF2FB; --info-fg:    #0A4E8A;
+  --purple:     #8062D3; --purple-bg:  #F0EAFE;
+
+  /* —— 字体：Segoe UI 系统字体栈 —— */
+  --font-sans: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system,
+               "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+               "Source Han Sans SC", sans-serif;
+  --font-mono: "Cascadia Code", "Segoe UI Mono", Consolas, "Courier New", monospace;
+
+  /* —— 圆角节奏（克制）—— */
+  --radius-sm:   4px;
+  --radius-md:   6px;
+  --radius-lg:   10px;
+  --radius-xl:   12px;
+  --radius-pill: 999px;
+
+  /* —— 阴影：柔和分层（Fluent depth）—— */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, .04);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .06), 0 1px 3px rgba(0, 0, 0, .04);
+  --shadow-md: 0 3px 8px rgba(0, 0, 0, .08), 0 1px 2px rgba(0, 0, 0, .04);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, .12), 0 2px 6px rgba(0, 0, 0, .06);
+  --shadow-brand: 0 2px 8px rgba(15, 108, 189, .22);
+
+  /* —— 间距（4px 网格）—— */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+
+  /* —— 微动效 —— */
+  --ease-out:   cubic-bezier(.16, 1, .3, 1);
+  --dur-fast:   120ms;
+  --dur-base:   200ms;
+  --dur-slow:   320ms;
+
+  /* —— 布局尺寸（供参考；实际用 @media）—— */
+  --sidebar-w: 240px;
+  --rail-w:    82px;
+}
+
+/* ============================ 深色主题 ============================ */
+[data-theme="dark"] {
+  --accent:        #2DC66B;
+  --accent-hover:  #43D27E;
+  --accent-pressed:#5BDD8E;
+  --accent-subtle: rgba(45, 214, 123, .16);
+  --accent-text:   #2DC66B;
+  --accent-ring:   rgba(45, 214, 123, .40);
+
+  --bg-app:     #202020;
+  --bg-surface: #2B2B2B;
+  --bg-subtle:  #262626;
+  --bg-inset:   #1A1A1A;
+  --bg-overlay: rgba(0, 0, 0, .6);
+
+  --mica:        rgba(32, 32, 32, .80);
+  --mica-strong: rgba(43, 43, 43, .66);
+
+  --text-strong:   #F3F3F3;
+  --text-default:  #E6E6E6;
+  --text-muted:    #B0B0B0;
+  --text-faint:    #8A8A8A;
+  --text-disabled: #6A6A6A;
+  --text-inverse:  #1B1B1B;
+
+  --border-subtle:  #3A3A3A;
+  --border-default: #4A4A4A;
+  --border-strong:  #5E5E5E;
+
+  --success: #2E9E4B; --success-bg: #1E3326; --success-fg: #8FE0A0;
+  --warning: #E0A93B; --warning-bg: #3A2F12; --warning-fg: #F4CD7A;
+  --danger:  #F1707B; --danger-bg:  #3A1C1A; --danger-fg:  #F7A6AC; --danger-hover-bg: #4A2420;
+  --info:    #4CC2FF; --info-bg:    #16303F; --info-fg:    #9FD8F5;
+  --purple:  #B39DF0; --purple-bg:  #2A2440;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, .30);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .34), 0 1px 3px rgba(0, 0, 0, .24);
+  --shadow-md: 0 3px 8px rgba(0, 0, 0, .40), 0 1px 2px rgba(0, 0, 0, .28);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, .50), 0 2px 6px rgba(0, 0, 0, .34);
+  --shadow-brand: 0 2px 8px rgba(76, 194, 255, .28);
+}

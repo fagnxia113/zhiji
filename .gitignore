@@ -1,0 +1,40 @@
+target/
+node_modules/
+.pnpm-store/
+# Build-scratch temp files (e.g. _tmp_<pid>_<hash>)
+_tmp_*
+.DS_Store
+.shuttle/
+Secrets*.toml
+.env
+.env.*
+!.env.sample
+.venv
+**/__pycache__/
+.supabase/
+.stripe/
+supabase/.seed/
+
+*storybook.log
+.cache/
+
+internal
+.turbo
+
+**/examples/out/
+
+# Local Netlify folder
+.netlify
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Agent scratch / reference material (not for commit)
+.tmp/
+.codex-security-artifacts-*/
+.codex-security-work-ledger-*.jsonl
+.claude/launch.json
+
+# Tauri updater signing key (private key must NEVER be committed)
+*.key
+*.pem

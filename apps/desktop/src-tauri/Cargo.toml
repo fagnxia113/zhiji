@@ -1,0 +1,40 @@
+[package]
+name = "zhiji-desktop"
+version = "1.9.0"
+authors = ["ZhiJi"]
+edition = "2024"
+description = "知记 Windows 个人工作台"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "zhiji_desktop_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = "2.5"
+
+[dependencies]
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+keyring = "2"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "multipart", "rustls", "rustls-native-certs"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.10", features = ["protocol-asset", "tray-icon"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+wasapi = "0.23"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Power", "Win32_System_Threading"] }

@@ -1,0 +1,276 @@
+name: Desktop CI
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+      - "refactor/**"
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      CARGO_NET_GIT_FETCH_WITH_CLI: true
+      CARGO_NET_RETRY: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: pnpm --filter @zhiji/desktop install --no-frozen-lockfile
+
+      - name: Check desktop frontend
+        run: pnpm --filter @zhiji/desktop build
+
+      - name: Check desktop native code
+        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Check embedded meeting engines
+        run: python -m py_compile apps/desktop/src-tauri/src/live_asr.py apps/desktop/src-tauri/src/speaker_engine.py
+
+      - name: Bundle local Chinese ASR runtime
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "funasr-runtime.zip"
+          $unpacked = Join-Path $env:RUNNER_TEMP "funasr-runtime"
+          $target = "apps/desktop/src-tauri/resources/funasr-runtime"
+          Invoke-WebRequest -Uri "https://github.com/modelscope/FunASR/releases/download/runtime-llamacpp-v0.1.9/funasr-llamacpp-windows-x64.zip" -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath $unpacked -Force
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          $executable = Get-ChildItem -Path $unpacked -Recurse -Filter "llama-funasr-sensevoice.exe" | Select-Object -First 1
+          if ($null -eq $executable) { throw "FunASR runtime executable was not found" }
+          Copy-Item -Path (Join-Path $executable.Directory.FullName "*") -Destination $target -Recurse -Force
+
+      - name: Bundle audio conversion runtime
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "ffmpeg.zip"
+          $unpacked = Join-Path $env:RUNNER_TEMP "ffmpeg"
+          $target = "apps/desktop/src-tauri/resources/ffmpeg"
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath $unpacked -Force
+          $executable = Get-ChildItem -Path $unpacked -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          if ($null -eq $executable) { throw "FFmpeg executable was not found" }
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Copy-Item -Path $executable.FullName -Destination (Join-Path $target "ffmpeg.exe") -Force
+
+      - name: Bundle Visual C++ runtime for local speaker engine
+        shell: pwsh
+        run: |
+          $target = "apps/desktop/src-tauri/resources/vcrt"
+          $runtimeDlls = @(
+            "concrt140.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll",
+            "msvcp140_atomic_wait.dll", "msvcp140_codecvt_ids.dll", "vcomp140.dll",
+            "vcruntime140.dll", "vcruntime140_1.dll"
+          )
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          foreach ($dll in $runtimeDlls) {
+            $source = Join-Path $env:WINDIR "System32/$dll"
+            if (-not (Test-Path $source)) { throw "Visual C++ runtime file was not found: $source" }
+            Copy-Item -Path $source -Destination (Join-Path $target $dll) -Force
+          }
+
+      # Preload the exact, hash-verified NSIS toolchain that tauri-bundler 2.9.3
+      # expects. This avoids an intermittent Rust TLS UnknownIssuer failure while
+      # tauri-bundler downloads nsis_tauri_utils.dll during the final package step.
+      - name: Prepare verified NSIS toolchain
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          function Get-VerifiedFile {
+            param(
+              [Parameter(Mandatory = $true)][string] $Uri,
+              [Parameter(Mandatory = $true)][string] $Destination,
+              [Parameter(Mandatory = $true)][string] $Sha1
+            )
+
+            for ($attempt = 1; $attempt -le 5; $attempt++) {
+              try {
+                Invoke-WebRequest -Uri $Uri -OutFile $Destination -MaximumRetryCount 2 -RetryIntervalSec 3
+                $actual = (Get-FileHash -Path $Destination -Algorithm SHA1).Hash
+                if ($actual -ne $Sha1) {
+                  throw "SHA-1 mismatch for $Uri (expected $Sha1, got $actual)"
+                }
+                return
+              } catch {
+                Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
+                if ($attempt -eq 5) { throw }
+                Start-Sleep -Seconds ([Math]::Min(20, $attempt * 4))
+              }
+            }
+          }
+
+          $toolsRoot = Join-Path $env:LOCALAPPDATA "tauri"
+          $nsisPath = Join-Path $toolsRoot "NSIS"
+          $archive = Join-Path $env:RUNNER_TEMP "nsis-3.11.zip"
+          $unpacked = Join-Path $env:RUNNER_TEMP "nsis-3.11-unpacked"
+          $pluginPath = Join-Path $nsisPath "Plugins/x86-unicode/additional/nsis_tauri_utils.dll"
+
+          Get-VerifiedFile `
+            -Uri "https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.11/nsis-3.11.zip" `
+            -Destination $archive `
+            -Sha1 "EF7FF767E5CBD9EDD22ADD3A32C9B8F4500BB10D"
+
+          New-Item -ItemType Directory -Force -Path $toolsRoot | Out-Null
+          New-Item -ItemType Directory -Force -Path $unpacked | Out-Null
+          Expand-Archive -Path $archive -DestinationPath $unpacked -Force
+          if (Test-Path -LiteralPath $nsisPath) {
+            Remove-Item -LiteralPath $nsisPath -Recurse -Force
+          }
+          Move-Item -LiteralPath (Join-Path $unpacked "nsis-3.11") -Destination $nsisPath
+          New-Item -ItemType Directory -Force -Path (Split-Path $pluginPath) | Out-Null
+
+          Get-VerifiedFile `
+            -Uri "https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll" `
+            -Destination $pluginPath `
+            -Sha1 "75197FEE3C6A814FE035788D1C34EAD39349B860"
+
+          $required = @(
+            (Join-Path $nsisPath "makensis.exe"),
+            (Join-Path $nsisPath "Bin/makensis.exe"),
+            (Join-Path $nsisPath "Include/MUI2.nsh"),
+            $pluginPath
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path -LiteralPath $path)) {
+              throw "Required NSIS file was not prepared: $path"
+            }
+          }
+
+      - name: Build, sign and release with tauri-action
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: tauri-apps/tauri-action@v0
+        env:
+          # Tauri v2 updater uses Ed25519/minisign keys. `tauri signer generate`
+          # prints the private key as base64 - pass it through verbatim. Do NOT
+          # re-base64 or strip anything: the printed value IS what Tauri consumes.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # The key was generated with an empty password (minisign still stores it
+          # as "encrypted"), so the empty password env is REQUIRED for Tauri to
+          # decrypt and sign during the build. If you ever regenerate the key with
+          # a real password, put that password in a secret and reference it here.
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          includeRelease: ${{ startsWith(github.ref, 'refs/tags/') }}
+          tagName: ${{ github.ref_name }}
+          releaseName: "知记 v__VERSION__"
+          releaseBody: |
+            知记 1.6.0 重构工作台与会议流程：
+            - 全新工作台突出一键录音、未完成会议、近期会议与今日行动
+            - 左侧导航改为带文字的清晰入口，补充页面说明和全局搜索快捷键
+            - 统一“录音、原文、纪要、完成”四步状态，首页、会议列表与详情保持一致
+            - 会议详情重排为进度、上下文、播放与内容工作区，下一步更明确
+            - 实时字幕支持暂停自动跟随，回看历史内容时不再被强制拉回底部
+            - 设置入口增加转写与智能纪要就绪提示，并修正本地实时引擎的状态判断
+            - 修复旧样式变量在深色主题下导致的弹窗背景、边框和悬停异常
+            - 优化窄窗口布局、状态层级、任务截止提示与应用品牌名称
+
+            安装此 NSIS 包后，后续版本可继续在应用内自动更新。
+          releaseDraft: false
+          prerelease: false
+          args: "--ci --bundles nsis"
+
+      # GitHub/Tauri may sanitize the Chinese productName from uploaded asset
+      # filenames. Keep the installed app branded as "知记", but normalize public
+      # release assets to a stable ASCII name before generating the updater manifest.
+      - name: Normalize release assets and upload latest.json
+        if: success() && startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          $repo = "${{ github.repository }}"
+          $api = "https://api.github.com/repos/$repo/releases/tags/$tag"
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = "application/vnd.github+json" }
+          $release = Invoke-RestMethod -Uri $api -Headers $headers
+          $exeAsset = $release.assets | Where-Object { $_.name -like '*_x64-setup.exe' } | Select-Object -First 1
+          $sigAsset = $release.assets | Where-Object { $_.name -like '*_x64-setup.exe.sig' } | Select-Object -First 1
+          if (-not $exeAsset) { throw "Installer asset not found in release $tag" }
+          if (-not $sigAsset) { throw "Signature asset not found in release $tag" }
+
+          $stableExeName = "ZhiJi_${version}_x64-setup.exe"
+          $stableSigName = "$stableExeName.sig"
+
+          foreach ($asset in @($exeAsset, $sigAsset)) {
+            $targetName = if ($asset.id -eq $exeAsset.id) { $stableExeName } else { $stableSigName }
+            $oldStableAsset = $release.assets | Where-Object { $_.name -eq $targetName -and $_.id -ne $asset.id } | Select-Object -First 1
+            if ($oldStableAsset) {
+              gh api --method DELETE "/repos/$repo/releases/assets/$($oldStableAsset.id)"
+            }
+            if ($asset.name -ne $targetName) {
+              gh api --method PATCH "/repos/$repo/releases/assets/$($asset.id)" -f "name=$targetName" | Out-Null
+            }
+          }
+
+          $release = Invoke-RestMethod -Uri $api -Headers $headers
+          $exeAsset = $release.assets | Where-Object { $_.name -eq $stableExeName } | Select-Object -First 1
+          $sigAsset = $release.assets | Where-Object { $_.name -eq $stableSigName } | Select-Object -First 1
+          if (-not $exeAsset -or -not $sigAsset) { throw "Normalized updater assets were not found in release $tag" }
+
+          # Download the minisign .sig verbatim and embed its full content
+          $tmp = Join-Path $env:RUNNER_TEMP "zhiji-latest.sig"
+          Invoke-WebRequest -Uri $sigAsset.browser_download_url -OutFile $tmp
+          $signature = (Get-Content $tmp -Raw).Trim()
+
+          $manifest = [ordered]@{
+            version   = $version
+            notes     = "知记 $version 更新"
+            pub_date  = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+            platforms = [ordered]@{
+              "windows-x86_64" = [ordered]@{
+                signature = $signature
+                url       = $exeAsset.browser_download_url
+              }
+            }
+          } | ConvertTo-Json -Depth 5 -Compress
+
+          Set-Content -Path "latest.json" -Value $manifest -Encoding utf8NoBOM
+          gh release upload $tag latest.json --clobber
+
+          $published = Invoke-RestMethod -Uri $api -Headers $headers
+          $requiredAssets = @($stableExeName, $stableSigName, "latest.json")
+          foreach ($name in $requiredAssets) {
+            if (-not ($published.assets | Where-Object { $_.name -eq $name })) {
+              throw "Required release asset is missing after publish: $name"
+            }
+          }
+
+          # Verify the updater manifest and installer bytes, not only asset names.
+          $publishedManifest = Invoke-RestMethod -Uri ($published.assets | Where-Object { $_.name -eq "latest.json" } | Select-Object -First 1).browser_download_url
+          if ($publishedManifest.version -ne $version) { throw "Updater manifest version mismatch" }
+          if ($publishedManifest.platforms.'windows-x86_64'.url -ne $exeAsset.browser_download_url) { throw "Updater installer URL mismatch" }
+          if ($publishedManifest.platforms.'windows-x86_64'.signature -ne $signature) { throw "Updater signature mismatch" }
+
+          $installerCheck = Join-Path $env:RUNNER_TEMP $stableExeName
+          Invoke-WebRequest -Uri $exeAsset.browser_download_url -OutFile $installerCheck
+          $installerInfo = Get-Item $installerCheck
+          if ($installerInfo.Length -lt 10MB) { throw "Installer is unexpectedly small: $($installerInfo.Length) bytes" }
+          $installerBytes = [System.IO.File]::ReadAllBytes($installerCheck)
+          $header = $installerBytes[0..1]
+          if ($header[0] -ne 0x4D -or $header[1] -ne 0x5A) { throw "Installer does not have a valid Windows executable header" }

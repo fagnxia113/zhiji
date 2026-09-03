@@ -1,0 +1,70 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "知记",
+  "version": "1.9.0",
+  "mainBinaryName": "zhiji",
+  "identifier": "com.zhiji.meetnote",
+  "build": {
+    "beforeDevCommand": "pnpm -F @zhiji/desktop dev",
+    "devUrl": "http://localhost:1422",
+    "beforeBuildCommand": "pnpm -F @zhiji/desktop build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "知记 - 个人工作台",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 400,
+        "minHeight": 720,
+        "center": true,
+        "decorations": false,
+        "resizable": true
+      }
+    ],
+    "withGlobalTauri": true,
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/recordings/**"]
+      }
+    }
+  },
+  "bundle": {
+    "publisher": "知记",
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": ["nsis"],
+    "resources": {
+      "resources/funasr-runtime/": "funasr-runtime/",
+      "resources/ffmpeg/": "ffmpeg/",
+      "resources/vcrt/": "vcrt/"
+    },
+    "externalBin": [],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "",
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIwNjFFMUYwNEUwOEY2RjYKUldUMjlnaE84T0ZoSVA1QlNDTnVIaEJVV0VHb3ZHbFNBQ0xHMURUTjhiWExrbGRUV28rcCtZTi8K",
+      "endpoints": [
+        "https://github.com/fagnxia113/zhiji/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

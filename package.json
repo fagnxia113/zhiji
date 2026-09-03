@@ -1,0 +1,8 @@
+{
+  "name": "zhiji",
+  "private": true,
+  "packageManager": "pnpm@11.1.1",
+  "engines": {
+    "node": ">=22"
+  }
+}

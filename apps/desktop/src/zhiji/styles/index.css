@@ -1,0 +1,7 @@
+/* 聚合入口：按顺序引入所有样式模块。其他文件只需 import 这个 index.css。 */
+
+@import "./tokens.css";
+@import "./base.css";
+@import "./layout.css";
+@import "./components.css";
+@import "./views.css";
