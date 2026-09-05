@@ -366,7 +366,6 @@ export function App() {
   const selectedMeetingRef = useRef<Meeting | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const toastTimerRef = useRef<number | null>(null);
-  const allowWindowCloseRef = useRef(false);
   selectedMeetingRef.current = selectedMeeting;
   const recording = recordingPhase === "recording";
   const recordingBusy = recordingPhase !== "idle";
@@ -673,38 +672,22 @@ export function App() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     void getCurrentWindow().onCloseRequested(async (event) => {
-      if (allowWindowCloseRef.current) return;
-      if (recordingWorkspaceLocked) {
-        event.preventDefault();
-        notify(recordingPhase === "finalizing"
-          ? "正在安全保存录音，完成后才能关闭知记"
-          : "会议仍在录音，请先结束录音并等待保存完成");
-        openRecordingMeeting();
-        return;
-      }
-      const current = selectedMeetingRef.current;
-      if (!current) return;
-      const json = JSON.stringify(current);
-      if (savedSnapshot.current.id === current.id && savedSnapshot.current.json === json) return;
+      // 点击关闭 = 隐藏到托盘，知记在后台继续运行（录音、转写不中断）。
+      // 真正退出请使用托盘图标右键菜单的「退出」。
       event.preventDefault();
-      // 未保存修改：先自动保存。若 6 秒内未完成或保存失败，询问用户是否放弃修改直接关闭，
-      // 避免「自动保存异常导致窗口永远关不掉」（只能从托盘退出的问题）。
-      const saved = await Promise.race([
-        persistMeeting(current).then(
-          () => true,
-          () => false,
-        ),
-        new Promise<boolean>((resolve) => window.setTimeout(() => resolve(false), 6000)),
-      ]);
-      if (!saved) {
-        const force = window.confirm("会议自动保存没有完成。仍要关闭知记吗？最近的修改可能丢失。");
-        if (!force) return;
+      try {
+        await flushSelectedMeeting();
+      } catch {
+        notify("当前会议尚未保存成功；从托盘重新打开知记后修改仍在，可再次保存。");
       }
-      allowWindowCloseRef.current = true;
-      await getCurrentWindow().close().catch(() => undefined);
+      if (!localStorage.getItem("zhiji:tray-hint-shown")) {
+        localStorage.setItem("zhiji:tray-hint-shown", "1");
+        notify("知记已最小化到托盘并在后台运行；退出请右键托盘图标选「退出」。");
+      }
+      await getCurrentWindow().hide();
     }).then((dispose) => { unlisten = dispose; });
     return () => unlisten?.();
-  }, [notify, openRecordingMeeting, persistMeeting, recordingPhase, recordingWorkspaceLocked]);
+  }, [flushSelectedMeeting, notify]);
 
   const manualCheck = async () => {
     setUpdateState("checking");
