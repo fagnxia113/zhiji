@@ -22,7 +22,7 @@
         "center": true,
         "decorations": false,
         "resizable": true,
-        "additionalBrowserArguments": "--disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=IntensiveWakeUpThrottling"
+        "additionalBrowserArgs": "--disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=IntensiveWakeUpThrottling"
       }
     ],
     "withGlobalTauri": true,
