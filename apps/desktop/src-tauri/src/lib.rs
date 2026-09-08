@@ -3274,23 +3274,66 @@ fn finish_app_exit(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
     Ok(())
 }
 
-/// CI 关闭冒烟测试的诊断日志：写入 exe 同目录的 zhiji-close-trace.log。
+/// CI 关闭冒烟测试的诊断日志：写入 exe 同目录的 zhiji-close-trace-<pid>.log。
 /// GUI 子系统的 stderr 不进入重定向文件，必须落盘才能在 runner 上看到。
+/// 文件名带 pid，用来区分多个实例（例如安装包结束后自动拉起的那一个）。
 fn trace_close(dir: &std::path::Path, message: &str) {
     use std::io::Write;
-    let path = dir.join("zhiji-close-trace.log");
+    let path = dir.join(format!("zhiji-close-trace-{}.log", std::process::id()));
     if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(file, "{} {message}", now());
     }
 }
 
+fn trace_dir() -> std::path::PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
+        .unwrap_or_default()
+}
+
+/// 每秒记录一次窗口清单，用来判断主窗口是在什么时候消失的。
+fn spawn_trace_heartbeat(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let dir = trace_dir();
+        let mut last = String::new();
+        for tick in 0..120 {
+            let mut windows: Vec<String> = app
+                .webview_windows()
+                .iter()
+                .map(|(label, window)| {
+                    format!("{label}(visible={})", window.is_visible().unwrap_or(false))
+                })
+                .collect();
+            windows.sort();
+            let state = windows.join(", ");
+            // Only log when the window set changes, plus a periodic keep-alive
+            // line, so the trace stays readable in CI logs.
+            if state != last || tick % 10 == 0 {
+                trace_close(&dir, &format!("heartbeat tick={tick} windows=[{state}]"));
+                last = state;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    });
+}
+
 #[tauri::command]
 fn trace_close_js(message: String) {
-    let dir = std::env::current_exe().map(|p| p.parent().map(std::path::Path::to_path_buf).unwrap_or_default()).unwrap_or_default();
-    trace_close(&dir, &format!("[js] {message}"));
+    trace_close(&trace_dir(), &format!("[js] {message}"));
 }
 
 pub fn run() {
+    let boot_dir = trace_dir();
+    trace_close(
+        &boot_dir,
+        &format!(
+            "process start pid={} exe={:?} args={:?}",
+            std::process::id(),
+            std::env::current_exe().ok(),
+            std::env::args().skip(1).collect::<Vec<_>>()
+        ),
+    );
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -3325,7 +3368,14 @@ pub fn run() {
             } else {
                 trace_close(&trace_dir, &format!("setup_tray ok (icon available: {})", app.default_window_icon().is_some()));
             }
-            trace_close(&trace_dir, "setup complete, entering event loop");
+            spawn_trace_heartbeat(app.handle().clone());
+            trace_close(
+                &trace_dir,
+                &format!(
+                    "setup complete, entering event loop (windows={})",
+                    app.webview_windows().len()
+                ),
+            );
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -3375,10 +3425,15 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("启动知记时发生错误")
-        .run(|_app_handle, event| {
+        .run(|app_handle, event| {
             if let tauri::RunEvent::ExitRequested { code, .. } = event {
-                let dir = std::env::current_exe().map(|p| p.parent().map(std::path::Path::to_path_buf).unwrap_or_default()).unwrap_or_default();
-                trace_close(&dir, &format!("RunEvent::ExitRequested code={code:?} - event loop about to exit"));
+                trace_close(
+                    &trace_dir(),
+                    &format!(
+                        "RunEvent::ExitRequested code={code:?} windows={} - event loop about to exit",
+                        app_handle.webview_windows().len()
+                    ),
+                );
             }
         });
 }
