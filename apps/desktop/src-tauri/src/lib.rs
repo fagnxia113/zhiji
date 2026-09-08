@@ -3448,7 +3448,7 @@ pub fn run() {
 /// 系统托盘：常驻，右键菜单提供「打开知记 / 退出」。配合开机自启，即使窗口被关闭也能一键唤起。
 fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     use tauri::menu::{Menu, MenuItem};
-    use tauri::tray::TrayIconBuilder;
+    use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 
     let open = MenuItem::with_id(app, "open", "打开知记", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
@@ -3480,6 +3480,21 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                 }
             }
             _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            // Closing hides the window, so the tray icon is the only entry point
+            // left: a plain left click or double click must bring the app back.
+            let restores = matches!(
+                event,
+                TrayIconEvent::Click { button: MouseButton::Left, .. }
+                    | TrayIconEvent::DoubleClick { button: MouseButton::Left, .. }
+            );
+            if !restores { return; }
+            if let Some(window) = tray.app_handle().get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
         })
         .build(app)?;
     Ok(())
