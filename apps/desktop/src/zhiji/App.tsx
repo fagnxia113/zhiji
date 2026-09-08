@@ -1750,6 +1750,14 @@ export function App() {
     }
   };
 
+  const openOfflineLink = async (url: string) => {
+    try {
+      await invoke("open_offline_link", { url });
+    } catch (error) {
+      notify(`${String(error)}：${url}`);
+    }
+  };
+
   const cancelProcessing = async () => {
     setProcessingCancelRequested(true);
     try {
@@ -2156,6 +2164,7 @@ export function App() {
             onImportOfflineItem={(id, kind) => void importOfflineItem(id, kind)}
             onRefreshOffline={() => void refreshOfflineManifest()}
             onCopyOfflineLink={(text) => void copyOfflineLink(text)}
+            onOpenOfflineLink={(url) => void openOfflineLink(url)}
             onAsrEngineChange={setAsrEngine}
             onAsrKeyInputChange={setAsrKeyInput}
             onSaveAsrEngine={(next, withKey) => void saveAsrEngine(next, withKey)}

@@ -3568,6 +3568,69 @@ fn trace_close_js(message: String) {
     trace_close(&trace_dir(), &format!("[js] {message}"));
 }
 
+/// 单实例：已有知记在运行时，把旧窗口唤到前台并让新进程直接退出。
+/// 否则第二个实例会因数据库被占用而在 setup 阶段失败，表现为白窗一闪而过。
+#[cfg(windows)]
+pub fn focus_existing_instance() -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS};
+    use windows_sys::Win32::System::Threading::CreateMutexW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        FindWindowW, SetForegroundWindow, ShowWindow, SW_RESTORE,
+    };
+    unsafe {
+        let name: Vec<u16> = "Local\\ZhijiSingleInstance\0".encode_utf16().collect();
+        let handle = CreateMutexW(std::ptr::null(), 0, name.as_ptr());
+        if handle.is_null() { return false; }
+        if GetLastError() != ERROR_ALREADY_EXISTS {
+            // 首个实例：故意不关闭句柄，让互斥量随进程存活。
+            return false;
+        }
+        let _ = CloseHandle(handle);
+        // FindWindowW 不要求窗口可见，隐藏到托盘的窗口也能找到。
+        let title: Vec<u16> = "知记 - 个人工作台\0".encode_utf16().collect();
+        let hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
+        if !hwnd.is_null() {
+            ShowWindow(hwnd, SW_RESTORE);
+            SetForegroundWindow(hwnd);
+        }
+        true
+    }
+}
+
+#[cfg(not(windows))]
+pub fn focus_existing_instance() -> bool {
+    false
+}
+
+/// 用系统默认浏览器打开下载页：WebView 里 <a target="_blank"> 不会调起浏览器。
+#[tauri::command]
+fn open_offline_link(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("仅支持打开网页链接".to_string());
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::Shell::ShellExecuteW;
+        use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        let verb: Vec<u16> = "open\0".encode_utf16().collect();
+        let file: Vec<u16> = format!("{url}\0").encode_utf16().collect();
+        let result = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                verb.as_ptr(),
+                file.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        if (result as isize) <= 32 {
+            return Err("无法打开系统浏览器，请复制链接到浏览器打开".to_string());
+        }
+    }
+    Ok(())
+}
+
 pub fn run() {
     let boot_dir = trace_dir();
     trace_close(
@@ -3659,7 +3722,7 @@ pub fn run() {
             list_backups, create_backup, restore_backup, open_backups_folder, export_diagnostics,
             get_data_location, reveal_data_folder, schedule_data_relocation, clear_data_relocation_error,
             download_local_asr_model, install_speaker_engine_command, check_live_engine,
-            get_offline_manifest, open_offline_folder, import_offline_item,
+            get_offline_manifest, open_offline_folder, import_offline_item, open_offline_link,
             save_ai_settings, clear_ai_api_key,
             get_asr_engine_settings, save_asr_engine_settings, clear_cloud_asr_key, get_recording_settings, save_recording_settings,
             create_meeting, save_meeting, upsert_task, delete_task,

@@ -17,6 +17,7 @@ type Props = {
   onImport: (id: string, kind: string) => void;
   onRefresh: () => void;
   onCopy: (text: string) => void;
+  onOpenLink: (url: string) => void;
 };
 
 const WHEEL_HINT =
@@ -29,6 +30,7 @@ export function OfflineInstallPanel({
   onImport,
   onRefresh,
   onCopy,
+  onOpenLink,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
   const pending = manifest.items.filter((item) => !item.ready);
@@ -72,6 +74,7 @@ export function OfflineInstallPanel({
               onOpenFolder={onOpenFolder}
               onImport={onImport}
               onCopy={onCopy}
+              onOpenLink={onOpenLink}
             />
           ))}
           <div className="offline-install-row">
@@ -105,12 +108,14 @@ function OfflineRow({
   onOpenFolder,
   onImport,
   onCopy,
+  onOpenLink,
 }: {
   item: OfflineInstallItem;
   busy: boolean;
   onOpenFolder: (id: string) => void;
   onImport: (id: string, kind: string) => void;
   onCopy: (text: string) => void;
+  onOpenLink: (url: string) => void;
 }) {
   return (
     <div className="offline-install-row">
@@ -124,10 +129,16 @@ function OfflineRow({
         {item.urls.length > 0 && (
           <div className="offline-install-links">
             {item.urls.map((url) => (
-              <a key={url} href={url} target="_blank" rel="noreferrer">
+              <button
+                key={url}
+                type="button"
+                className="offline-copy"
+                disabled={busy}
+                onClick={() => onOpenLink(url)}
+              >
                 <ExternalLink size={13} />
                 {shortLink(url)}
-              </a>
+              </button>
             ))}
             <button
               type="button"

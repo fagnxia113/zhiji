@@ -96,6 +96,7 @@ export function SettingsView({
   onImportOfflineItem,
   onRefreshOffline,
   onCopyOfflineLink,
+  onOpenOfflineLink,
   onAsrEngineChange,
   onAsrKeyInputChange,
   onSaveAsrEngine,
@@ -132,6 +133,7 @@ export function SettingsView({
   onImportOfflineItem: (id: string, kind: string) => void;
   onRefreshOffline: () => void;
   onCopyOfflineLink: (text: string) => void;
+  onOpenOfflineLink: (url: string) => void;
   onAsrEngineChange: (settings: AsrEngineSettings) => void;
   onAsrKeyInputChange: (key: string) => void;
   onSaveAsrEngine: (next: AsrEngineSettings, withKey: boolean) => void;
@@ -682,6 +684,7 @@ export function SettingsView({
                     onImport={onImportOfflineItem}
                     onRefresh={onRefreshOffline}
                     onCopy={onCopyOfflineLink}
+                    onOpenLink={onOpenOfflineLink}
                   />
                 )}
               </>
