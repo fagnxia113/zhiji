@@ -110,6 +110,26 @@ export type LocalAsrStatus = {
 
 export type SpeakerEngineStatus = { installed: boolean; modelsReady: boolean };
 
+export type OfflineInstallItem = {
+  id: string;
+  label: string;
+  note: string;
+  /** "file" 单文件；"directory" 整个目录（FunASR 权重） */
+  kind: "file" | "directory" | string;
+  fileName: string;
+  targetDir: string;
+  targetPath: string;
+  urls: string[];
+  ready: boolean;
+};
+
+export type OfflineInstallManifest = {
+  items: OfflineInstallItem[];
+  wheelsDir: string;
+  wheelsCount: number;
+  dataDir: string;
+};
+
 export type AsrEngineSettings = {
   provider: "local" | "cloud";
   cloudBaseUrl: string;

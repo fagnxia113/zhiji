@@ -45,6 +45,14 @@ const VC_RUNTIME_DLLS: &[&str] = &[
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const PYTHON_EMBED_URL: &str = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip";
+// FunASR 说话人引擎用到的五组权重（ModelScope 仓库页），供手动下载时对照。
+const FUNASR_MODEL_REPOS: &[(&str, &str)] = &[
+    ("实时转写", "https://modelscope.cn/models/iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online"),
+    ("高质量识别", "https://modelscope.cn/models/iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"),
+    ("语音活动检测", "https://modelscope.cn/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch"),
+    ("标点恢复", "https://modelscope.cn/models/iic/punc_ct-transformer_cn-en-common-vocab471067-large"),
+    ("说话人特征", "https://modelscope.cn/models/iic/speech_campplus_sv_zh-cn_16k-common"),
+];
 const GET_PIP_URL: &str = "https://bootstrap.pypa.io/get-pip.py";
 // 数据位置引导配置存放在系统默认配置目录（位置固定，不随个人数据迁移）：
 const DATA_LOCATION_FILE: &str = "data-location.json";
@@ -315,6 +323,30 @@ struct LocalAsrStatus { installed: bool, runtime_available: bool, model_size_mb:
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SpeakerEngineStatus { installed: bool, models_ready: bool }
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OfflineInstallItem {
+    id: String,
+    label: String,
+    note: String,
+    /// "file" 表示单个文件；"directory" 表示整个目录（FunASR 权重）。
+    kind: String,
+    file_name: String,
+    target_dir: String,
+    target_path: String,
+    urls: Vec<String>,
+    ready: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OfflineInstallManifest {
+    items: Vec<OfflineInstallItem>,
+    wheels_dir: String,
+    wheels_count: usize,
+    data_dir: String,
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1007,19 +1039,29 @@ fn download_file(url: &str, destination: &Path) -> Result<(), String> {
             let client = reqwest::blocking::Client::builder()
                 .user_agent(MODEL_DOWNLOAD_USER_AGENT)
                 .connect_timeout(std::time::Duration::from_secs(15))
-                .timeout(std::time::Duration::from_secs(600))
+                .timeout(std::time::Duration::from_secs(1800))
                 .build()
                 .map_err(app_error)?;
-            let response = client
+            // 续传：保留上一次中断的 .part，用 Range 从断点继续，避免大文件
+            // 网络一抖就前功尽弃。服务器不支持 Range 时会回 200，按整包重写。
+            let existing = fs::metadata(&temporary).map(|metadata| metadata.len()).unwrap_or(0);
+            let mut request = client
                 .get(url)
                 .header(
                     reqwest::header::ACCEPT,
                     "application/octet-stream,application/*;q=0.9,*/*;q=0.8",
-                )
-                .send()
-                .map_err(app_error)?;
+                );
+            if existing > 0 {
+                request = request.header(reqwest::header::RANGE, format!("bytes={existing}-"));
+            }
+            let response = request.send().map_err(app_error)?;
+            let partial = response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
             let mut body = response_error(response, "模型下载服务")?;
-            let mut output = fs::File::create(&temporary).map_err(app_error)?;
+            let mut output = if existing > 0 && partial {
+                std::fs::OpenOptions::new().append(true).open(&temporary).map_err(app_error)?
+            } else {
+                fs::File::create(&temporary).map_err(app_error)?
+            };
             io::copy(&mut body, &mut output).map_err(app_error)?;
             output.sync_all().map_err(app_error)?;
             fs::rename(&temporary, destination).map_err(app_error)
@@ -1028,7 +1070,10 @@ fn download_file(url: &str, destination: &Path) -> Result<(), String> {
             Ok(()) => return Ok(()),
             Err(error) => {
                 last_error = error;
-                let _ = fs::remove_file(&temporary);
+                // .part 保留下来供下次续传；只有当它明显不可靠时才清掉。
+                if last_error.contains("返回 4") || last_error.contains("返回 5") {
+                    let _ = fs::remove_file(&temporary);
+                }
             }
         }
     }
@@ -1422,21 +1467,43 @@ fn remove_broken_torch_installation(engine_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn install_python_packages(python: &Path, packages: &[&str], index: &str, extra_index: Option<&str>, force_reinstall: bool, stage: &str) -> Result<(), String> {
+/// wheels 目录里放好了 .whl 就优先离线安装，缺的 pip 会继续去 index 找。
+fn wheels_dir_available(engine_dir: &Path) -> Option<PathBuf> {
+    let wheels = engine_dir.join("wheels");
+    let present = fs::read_dir(&wheels)
+        .ok()?
+        .flatten()
+        .any(|entry| entry.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("whl")));
+    present.then_some(wheels)
+}
+
+fn install_python_packages(
+    python: &Path,
+    packages: &[&str],
+    index: &str,
+    extra_index: Option<&str>,
+    force_reinstall: bool,
+    stage: &str,
+    wheels: Option<&Path>,
+) -> Result<(), String> {
     let mut arguments = vec![
         "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "--no-warn-script-location", "--prefer-binary",
         "--retries", "12", "--resume-retries", "12", "--timeout", "90", "--index-url", index,
     ];
     if let Some(extra_index) = extra_index { arguments.extend_from_slice(&["--extra-index-url", extra_index]); }
+    if let Some(wheels) = wheels {
+        let wheel_arg = wheels.to_string_lossy().into_owned();
+        arguments.extend_from_slice(&["--find-links", &wheel_arg]);
+    }
     if force_reinstall { arguments.push("--force-reinstall"); }
     arguments.extend_from_slice(packages);
     run_python(python, &arguments, stage)
 }
 
-fn install_python_packages_with_fallback(python: &Path, packages: &[&str], stage: &str) -> Result<(), String> {
-    match install_python_packages(python, packages, ALIYUN_PYPI_INDEX, Some(PYTORCH_CPU_INDEX), false, stage) {
+fn install_python_packages_with_fallback(python: &Path, packages: &[&str], stage: &str, wheels: Option<&Path>) -> Result<(), String> {
+    match install_python_packages(python, packages, ALIYUN_PYPI_INDEX, Some(PYTORCH_CPU_INDEX), false, stage, wheels) {
         Ok(()) => Ok(()),
-        Err(mirror_error) => install_python_packages(python, packages, OFFICIAL_PYPI_INDEX, Some(PYTORCH_CPU_INDEX), false, stage)
+        Err(mirror_error) => install_python_packages(python, packages, OFFICIAL_PYPI_INDEX, Some(PYTORCH_CPU_INDEX), false, stage, wheels)
             .map_err(|official_error| format!("{official_error}\n\n国内镜像的首次尝试也失败：{mirror_error}")),
     }
 }
@@ -1445,6 +1512,8 @@ fn install_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf, vcrt_dir: Pa
     let python = speaker_python(&engine_dir);
     fs::create_dir_all(&engine_dir).map_err(app_error)?;
     fs::create_dir_all(&models_dir).map_err(app_error)?;
+    // wheels 目录固定存在，方便用户把手动下载的 .whl 放进来做离线安装。
+    fs::create_dir_all(engine_dir.join("wheels")).map_err(app_error)?;
     if speaker_engine_installed(&engine_dir) && speaker_models_ready(&models_dir) {
         prepare_speaker_runtime(&vcrt_dir, &engine_dir)?;
         if run_python(
@@ -1472,13 +1541,14 @@ fn install_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf, vcrt_dir: Pa
         "检查会议引擎依赖",
     ).is_ok();
     if !packages_ready {
+        let wheels = wheels_dir_available(&engine_dir);
         let get_pip = engine_dir.join("get-pip.py");
         if !get_pip.is_file() { download_file(GET_PIP_URL, &get_pip)?; }
         let get_pip_arg = get_pip.to_string_lossy().into_owned();
         run_python(&python, &[&get_pip_arg, "--disable-pip-version-check"], "准备会议引擎")?;
         remove_broken_torch_installation(&engine_dir)?;
-        install_python_packages(&python, &[TORCH_CPU_VERSION, TORCHAUDIO_CPU_VERSION], PYTORCH_CPU_INDEX, None, false, "修复本地计算组件")?;
-        install_python_packages_with_fallback(&python, &["funasr", "modelscope", "soundfile", TORCH_CPU_VERSION, TORCHAUDIO_CPU_VERSION], "安装会议引擎组件")?;
+        install_python_packages(&python, &[TORCH_CPU_VERSION, TORCHAUDIO_CPU_VERSION], PYTORCH_CPU_INDEX, None, false, "修复本地计算组件", wheels.as_deref())?;
+        install_python_packages_with_fallback(&python, &["funasr", "modelscope", "soundfile", TORCH_CPU_VERSION, TORCHAUDIO_CPU_VERSION], "安装会议引擎组件", wheels.as_deref())?;
     }
     run_python(&python, &["-c", "import torch, torchaudio, torchgen; print(torch.__version__, torchaudio.__version__)"], "验证本地计算组件")?;
     run_python(&python, &["-m", "pip", "check"], "检查说话人引擎依赖")?;
@@ -2006,6 +2076,175 @@ async fn check_live_engine(state: State<'_, AppState>) -> Result<String, String>
     tauri::async_runtime::spawn_blocking(move || live_session::check_engine(engine_dir, models_dir))
         .await.map_err(|error| format!("实时字幕自检任务中断：{error}"))??;
     Ok("实时字幕自检通过".to_string())
+}
+
+/// 手动安装引导：把每个可自行下载的部件的地址、目标文件名与目录交给设置页。
+/// 所有状态判断都和自动安装共用同一套函数，手动放好的文件立即生效。
+fn offline_item(
+    id: &str,
+    label: &str,
+    note: &str,
+    kind: &str,
+    file_name: &str,
+    target_dir: &Path,
+    urls: &[&str],
+    ready: bool,
+) -> OfflineInstallItem {
+    OfflineInstallItem {
+        id: id.to_string(),
+        label: label.to_string(),
+        note: note.to_string(),
+        kind: kind.to_string(),
+        file_name: file_name.to_string(),
+        target_dir: target_dir.to_string_lossy().into_owned(),
+        target_path: target_dir.join(file_name).to_string_lossy().into_owned(),
+        urls: urls.iter().map(|url| url.to_string()).collect(),
+        ready,
+    }
+}
+
+fn offline_manifest(state: &AppState) -> OfflineInstallManifest {
+    let wheels_dir = state.speaker_engine_dir.join("wheels");
+    let wheels_count = fs::read_dir(&wheels_dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter(|entry| entry.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("whl")))
+                .count()
+        })
+        .unwrap_or(0);
+    OfflineInstallManifest {
+        items: vec![
+            offline_item(
+                "asr-model",
+                "本地语音模型（SenseVoice）",
+                "离线转写主模型，约 250 MB。下载后放进目标目录即可生效。",
+                "file",
+                SENSEVOICE_MODEL_NAME,
+                &state.models_dir,
+                SENSEVOICE_MODEL_URLS,
+                state.models_dir.join(SENSEVOICE_MODEL_NAME).is_file(),
+            ),
+            offline_item(
+                "asr-vad",
+                "语音活动检测模型（FSMN-VAD）",
+                "配合 SenseVoice 使用的小模型，约 10 MB。",
+                "file",
+                FSMN_VAD_MODEL_NAME,
+                &state.models_dir,
+                FSMN_VAD_MODEL_URLS,
+                state.models_dir.join(FSMN_VAD_MODEL_NAME).is_file(),
+            ),
+            offline_item(
+                "python-embed",
+                "内嵌 Python 运行时",
+                "说话人引擎依赖的 Python 3.11 嵌入式包。放入后回到设置页点「安装说话人引擎」，应用会自动解压并继续安装。",
+                "file",
+                "python-embed.zip",
+                &state.speaker_engine_dir,
+                std::slice::from_ref(&PYTHON_EMBED_URL),
+                speaker_python(&state.speaker_engine_dir).is_file(),
+            ),
+            offline_item(
+                "funasr-models",
+                "说话人模型权重（FunASR）",
+                "约 1 GB，含五组权重。可以从另一台装好的电脑把整个 funasr-meeting 文件夹拷过来，再「导入」或直接放进目标目录；导入后会自动补写就绪标记。",
+                "directory",
+                "funasr-meeting",
+                &state.models_dir,
+                &FUNASR_MODEL_REPOS.iter().map(|(_, url)| *url).collect::<Vec<_>>(),
+                speaker_models_ready(&state.speaker_models_dir),
+            ),
+        ],
+        wheels_dir: wheels_dir.to_string_lossy().into_owned(),
+        wheels_count,
+        data_dir: state.data_dir.to_string_lossy().into_owned(),
+    }
+}
+
+#[tauri::command]
+fn get_offline_manifest(state: State<'_, AppState>) -> OfflineInstallManifest {
+    offline_manifest(&state)
+}
+
+fn offline_item_dir(state: &AppState, id: &str) -> Result<PathBuf, String> {
+    match id {
+        "asr-model" | "asr-vad" | "funasr-models" => Ok(state.models_dir.clone()),
+        "python-embed" => Ok(state.speaker_engine_dir.clone()),
+        _ => Err("未知的安装项".to_string()),
+    }
+}
+
+#[tauri::command]
+fn open_offline_folder(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let target = offline_item_dir(&state, &id)?;
+    fs::create_dir_all(&target).map_err(app_error)?;
+    reveal_path(&target, false)
+}
+
+fn import_single_file(source: &Path, target: &Path, min_size: u64) -> Result<(), String> {
+    if !source.is_file() { return Err("请选择一个文件而不是文件夹".to_string()); }
+    if source == target { return Ok(()); }
+    let size = fs::metadata(source).map_err(app_error)?.len();
+    if size < min_size {
+        return Err(format!("所选文件只有 {} 字节，不像完整的模型文件，请确认下载完整后重试", size));
+    }
+    if let Some(parent) = target.parent() { fs::create_dir_all(parent).map_err(app_error)?; }
+    fs::copy(source, target).map_err(|error| format!("复制到知记数据目录失败：{error}"))?;
+    Ok(())
+}
+
+fn copy_dir_recursive(source: &Path, target: &Path) -> Result<(), String> {
+    fs::create_dir_all(target).map_err(app_error)?;
+    for entry in fs::read_dir(source).map_err(app_error)? {
+        let entry = entry.map_err(app_error)?;
+        let path = entry.path();
+        let output = target.join(entry.file_name());
+        if path.is_dir() {
+            copy_dir_recursive(&path, &output)?;
+        } else {
+            fs::copy(&path, &output).map_err(|error| format!("复制 {} 失败：{error}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn import_funasr_models(source: &Path, target: &Path) -> Result<(), String> {
+    if source.is_file() {
+        return Err("请选择 funasr-meeting 文件夹（或包含它的上级文件夹），而不是压缩包或单个文件".to_string());
+    }
+    let origin = if source.file_name().is_some_and(|name| name.to_string_lossy() == "funasr-meeting") {
+        source.to_path_buf()
+    } else if source.join("funasr-meeting").is_dir() {
+        source.join("funasr-meeting")
+    } else if quality_models_available(source) || source.join("realtime-online").join("config.yaml").is_file() {
+        source.to_path_buf()
+    } else {
+        return Err("所选文件夹里没有找到 FunASR 权重（缺少 SeacoParaformer / realtime-online 等），请确认选择的是 funasr-meeting 文件夹".to_string());
+    };
+    copy_dir_recursive(&origin, target)?;
+    if !quality_models_available(target) {
+        return Err("已复制，但缺少高质量模型（SeacoParaformer / FsmnVADStreaming / CTTransformer / CAMPPlus 之一），补齐后请重新检测".to_string());
+    }
+    if !target.join("realtime-online").join("config.yaml").is_file() {
+        return Err("已复制，但缺少实时转写模型 realtime-online，补齐后请重新检测".to_string());
+    }
+    fs::write(speaker_models_marker(target), SPEAKER_MODELS_VERSION).map_err(app_error)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn import_offline_item(state: State<'_, AppState>, id: String, source: String) -> Result<(), String> {
+    let source_path = PathBuf::from(source.trim().trim_matches('"'));
+    if !source_path.exists() { return Err("所选文件或文件夹不存在，请重新选择".to_string()); }
+    match id.as_str() {
+        "asr-model" => import_single_file(&source_path, &state.models_dir.join(SENSEVOICE_MODEL_NAME), 50_000_000)?,
+        "asr-vad" => import_single_file(&source_path, &state.models_dir.join(FSMN_VAD_MODEL_NAME), 1_000_000)?,
+        "python-embed" => import_single_file(&source_path, &state.speaker_engine_dir.join("python-embed.zip"), 1_000_000)?,
+        "funasr-models" => import_funasr_models(&source_path, &state.speaker_models_dir)?,
+        _ => return Err("未知的安装项".to_string()),
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -3419,6 +3658,7 @@ pub fn run() {
             list_backups, create_backup, restore_backup, open_backups_folder, export_diagnostics,
             get_data_location, reveal_data_folder, schedule_data_relocation, clear_data_relocation_error,
             download_local_asr_model, install_speaker_engine_command, check_live_engine,
+            get_offline_manifest, open_offline_folder, import_offline_item,
             save_ai_settings, clear_ai_api_key,
             get_asr_engine_settings, save_asr_engine_settings, clear_cloud_asr_key, get_recording_settings, save_recording_settings,
             create_meeting, save_meeting, upsert_task, delete_task,

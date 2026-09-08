@@ -29,11 +29,13 @@ import type {
   AsrEngineSettings,
   BackupInfo,
   LocalAsrStatus,
+  OfflineInstallManifest,
   Processing,
   RecordingSettings,
   SpeakerEngineStatus,
   Workspace,
 } from "./types";
+import { OfflineInstallPanel } from "./components/settings/OfflineInstallPanel";
 import type { ThemePreference } from "./theme";
 
 const CLOUD_ASR_PRESETS = [
@@ -89,6 +91,11 @@ export function SettingsView({
   onDownloadAsr,
   onInstallSpeaker,
   onCheckLiveEngine,
+  offlineManifest,
+  onOpenOfflineFolder,
+  onImportOfflineItem,
+  onRefreshOffline,
+  onCopyOfflineLink,
   onAsrEngineChange,
   onAsrKeyInputChange,
   onSaveAsrEngine,
@@ -120,6 +127,11 @@ export function SettingsView({
   onDownloadAsr: () => void;
   onInstallSpeaker: () => void;
   onCheckLiveEngine: () => void;
+  offlineManifest: OfflineInstallManifest | null;
+  onOpenOfflineFolder: (id: string) => void;
+  onImportOfflineItem: (id: string, kind: string) => void;
+  onRefreshOffline: () => void;
+  onCopyOfflineLink: (text: string) => void;
   onAsrEngineChange: (settings: AsrEngineSettings) => void;
   onAsrKeyInputChange: (key: string) => void;
   onSaveAsrEngine: (next: AsrEngineSettings, withKey: boolean) => void;
@@ -661,6 +673,17 @@ export function SettingsView({
                     )}
                   </div>
                 </section>
+
+                {offlineManifest && (
+                  <OfflineInstallPanel
+                    manifest={offlineManifest}
+                    busy={processing !== null}
+                    onOpenFolder={onOpenOfflineFolder}
+                    onImport={onImportOfflineItem}
+                    onRefresh={onRefreshOffline}
+                    onCopy={onCopyOfflineLink}
+                  />
+                )}
               </>
             )}
 

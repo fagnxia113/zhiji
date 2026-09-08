@@ -48,6 +48,7 @@ import type {
   LocalAsrStatus,
   Meeting,
   MeetingTemplate,
+  OfflineInstallManifest,
   Processing,
   SpeakerEngineStatus,
   SpeakerSegment,
@@ -330,6 +331,7 @@ export function App() {
   const [asrStatus, setAsrStatus] = useState<LocalAsrStatus>(defaultAsrStatus);
   const [speakerStatus, setSpeakerStatus] =
     useState<SpeakerEngineStatus>(defaultSpeakerStatus);
+  const [offlineManifest, setOfflineManifest] = useState<OfflineInstallManifest | null>(null);
   const [asrEngine, setAsrEngine] = useState<AsrEngineSettings>(defaultAsrEngine);
   const [recordingSettings, setRecordingSettings] = useState<RecordingSettings>(defaultRecordingSettings);
   const [asrKeyInput, setAsrKeyInput] = useState("");
@@ -827,12 +829,13 @@ export function App() {
       invoke<AiSettings>("get_ai_settings"),
       invoke<LocalAsrStatus>("get_local_asr_status"),
       invoke<SpeakerEngineStatus>("get_speaker_engine_status"),
+      invoke<OfflineInstallManifest>("get_offline_manifest"),
       invoke<AsrEngineSettings>("get_asr_engine_settings"),
       invoke<RecordingSettings>("get_recording_settings"),
       invoke<BackupInfo[]>("list_backups"),
       getVersion(),
     ])
-      .then(([recovered, settings, asr, speaker, engine, recording, storedBackups, version]) => {
+      .then(([recovered, settings, asr, speaker, offline, engine, recording, storedBackups, version]) => {
         if (!active) return;
         if (recovered.status === "rejected") {
           setStartupError(String(recovered.reason));
@@ -842,10 +845,11 @@ export function App() {
         if (asr.status === "fulfilled") setAsrStatus(asr.value);
         if (speaker.status === "fulfilled") setSpeakerStatus(speaker.value);
         if (engine.status === "fulfilled") setAsrEngine(engine.value);
+        if (offline.status === "fulfilled") setOfflineManifest(offline.value);
         if (recording.status === "fulfilled" && recording.value) setRecordingSettings(recording.value);
         if (storedBackups.status === "fulfilled") setBackups(storedBackups.value);
         if (version.status === "fulfilled") setCurrentVersion(version.value);
-        const unavailable = [settings, asr, speaker, engine, recording, storedBackups, version].filter(result => result.status === "rejected").length;
+        const unavailable = [settings, asr, speaker, engine, offline, recording, storedBackups, version].filter(result => result.status === "rejected").length;
         if (unavailable) setStartupWarning("部分配置或引擎状态未能读取，会议资料已经打开。可在设置中检查，或重新加载后再开始录音与智能处理。");
         setShowOnboarding(localStorage.getItem("zhiji:onboarding-complete") !== "1");
         if (recovered.value > 0) notify(`已恢复 ${recovered.value} 段上次意外中断的录音。`);
@@ -1697,6 +1701,55 @@ export function App() {
     }
   };
 
+  const refreshOfflineManifest = async () => {
+    try {
+      const [manifest, asr, speaker] = await Promise.all([
+        invoke<OfflineInstallManifest>("get_offline_manifest"),
+        invoke<LocalAsrStatus>("get_local_asr_status"),
+        invoke<SpeakerEngineStatus>("get_speaker_engine_status"),
+      ]);
+      setOfflineManifest(manifest);
+      setAsrStatus(asr);
+      setSpeakerStatus(speaker);
+      notify("已重新检测本地引擎状态。");
+    } catch (error) {
+      notify(`重新检测失败：${String(error)}`);
+    }
+  };
+
+  const openOfflineFolder = async (id: string) => {
+    try {
+      await invoke("open_offline_folder", { id });
+    } catch (error) {
+      notify(`打开目录失败：${String(error)}`);
+    }
+  };
+
+  const importOfflineItem = async (id: string, kind: string) => {
+    try {
+      const picked = await open({
+        directory: kind === "directory",
+        multiple: false,
+        title: kind === "directory" ? "选择 funasr-meeting 文件夹" : "选择已下载的文件",
+      });
+      if (typeof picked !== "string" || !picked.trim()) return;
+      await invoke("import_offline_item", { id, source: picked });
+      await refreshOfflineManifest();
+      notify("导入完成，引擎状态已更新。");
+    } catch (error) {
+      notify(`导入失败：${String(error)}`);
+    }
+  };
+
+  const copyOfflineLink = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      notify("下载链接已复制，可粘贴到浏览器或下载工具。");
+    } catch {
+      notify("复制失败，请直接打开链接下载。");
+    }
+  };
+
   const cancelProcessing = async () => {
     setProcessingCancelRequested(true);
     try {
@@ -2098,6 +2151,11 @@ export function App() {
             onDownloadAsr={() => void downloadLocalAsr()}
             onInstallSpeaker={() => void installSpeakerEngine()}
             onCheckLiveEngine={() => void checkLiveEngine()}
+            offlineManifest={offlineManifest}
+            onOpenOfflineFolder={(id) => void openOfflineFolder(id)}
+            onImportOfflineItem={(id, kind) => void importOfflineItem(id, kind)}
+            onRefreshOffline={() => void refreshOfflineManifest()}
+            onCopyOfflineLink={(text) => void copyOfflineLink(text)}
             onAsrEngineChange={setAsrEngine}
             onAsrKeyInputChange={setAsrKeyInput}
             onSaveAsrEngine={(next, withKey) => void saveAsrEngine(next, withKey)}
