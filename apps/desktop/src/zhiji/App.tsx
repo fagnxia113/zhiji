@@ -700,9 +700,12 @@ export function App() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let active = true;
-    void getCurrentWindow().onCloseRequested(async () => {
-      // Native CloseRequested owns hide/minimize, including during startup or UI errors.
-      // The process remains alive so the pending write can safely finish after hiding.
+    void getCurrentWindow().onCloseRequested(async (event) => {
+      // The JS wrapper destroys the window unless the handler prevents default,
+      // which would remove the last window and exit the whole process.
+      // Rust's CloseRequested handler owns hide/minimize; preventing default
+      // here keeps the process alive so pending writes finish after hiding.
+      event.preventDefault();
       try {
         await flushSelectedMeeting();
       } catch {
