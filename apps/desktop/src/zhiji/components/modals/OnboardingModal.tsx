@@ -19,7 +19,7 @@ export function OnboardingModal({
 }) {
   const transcriptionReady =
     asrEngine.provider === "local"
-      ? speakerStatus.installed && speakerStatus.modelsReady
+      ? (speakerStatus.installed && speakerStatus.modelsReady) || (asrStatus.installed && asrStatus.runtimeAvailable)
       : asrEngine.cloudKeySaved;
 
   return (
@@ -44,7 +44,10 @@ export function OnboardingModal({
           <span>{asrEngine.provider === "local" ? <Mic size={18} /> : <Cloud size={18} />}</span>
           <div>
             <strong>{asrEngine.provider === "local" ? "本地语音转写" : "云端语音转写"}</strong>
-            <small>{transcriptionReady ? "实时字幕与会后高精度转写已经可以使用" : asrStatus.installed ? "轻量模型可用；实时字幕引擎还需要准备" : "还需要在设置中完成引擎配置"}</small>
+            <small>{asrEngine.provider === "cloud"
+              ? (transcriptionReady ? "云端转写已配置，使用时将向服务商发送录音" : "还需要配置云端转写服务")
+              : speakerStatus.installed && speakerStatus.modelsReady ? "本地实时字幕与会后转写引擎已准备"
+                : transcriptionReady ? "轻量离线转写已准备；实时字幕需另外配置引擎" : "还需要在设置中完成引擎配置"}</small>
           </div>
           {transcriptionReady && <Check size={17} />}
         </div>

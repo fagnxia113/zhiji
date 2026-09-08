@@ -926,10 +926,10 @@ export function SettingsView({
             </section>
             <section className="settings-card backups-card">
               <div>
-                <h3>自动备份</h3>
+                <h3>数据库自动备份</h3>
                 <p>
                   每天首次启动时自动备份资料库，最多保留最近 2
-                  份。恢复前会再保存一次当前数据。
+                  份。恢复前会再保存一次当前数据。备份不包含录音文件，迁移时请一并保留录音目录。
                 </p>
               </div>
               <div className="settings-actions">

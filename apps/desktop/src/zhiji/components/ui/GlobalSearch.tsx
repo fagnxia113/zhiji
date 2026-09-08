@@ -7,9 +7,10 @@ type SearchResult =
   | { kind: "task"; task: Task; title: string; snippet: string };
 
 /** 可搜索字段（含匹配优先级：标题 > 纪要/笔记/会前背景 > 转写）。 */
-const MEETING_FIELDS: { key: "title" | "minutes" | "notes" | "context" | "transcript"; label: string }[] = [
+const MEETING_FIELDS: { key: "title" | "minutes" | "notes" | "context" | "transcript" | "decisions"; label: string }[] = [
   { key: "title", label: "标题" },
   { key: "minutes", label: "纪要" },
+  { key: "decisions", label: "决策" },
   { key: "notes", label: "笔记" },
   { key: "context", label: "会前背景" },
   { key: "transcript", label: "转写" },
@@ -122,7 +123,7 @@ export function GlobalSearch({
       }));
 
     const taskResults: SearchResult[] = workspace.tasks
-      .filter((task) => tokens.every((token) => task.title.toLocaleLowerCase().includes(token)))
+      .filter((task) => tokens.every((token) => `${task.title} ${task.owner ?? ""}`.toLocaleLowerCase().includes(token)))
       .slice(0, 4)
       .map((task) => ({
         kind: "task",
@@ -140,7 +141,7 @@ export function GlobalSearch({
     <div className="global-search-results" role="listbox" aria-label="全局搜索结果">
       <div className="global-search-summary">
         <Search size={14} />
-        找到 {results.total} 项相关内容
+        显示 {results.total} 项相关内容（最多 10 项）
       </div>
       {results.list.length ? (
         results.list.map((result) => (

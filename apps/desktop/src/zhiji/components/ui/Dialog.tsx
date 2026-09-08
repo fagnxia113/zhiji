@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 type DialogProps = {
   children: ReactNode;
@@ -21,14 +21,41 @@ export function Dialog({
   ariaLabelledBy,
   className = "",
 }: DialogProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
-    if (!onClose || !closeOnEsc) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]',
+    )).filter(element => element.getClientRects().length > 0);
+    if (!dialog.contains(document.activeElement)) (focusable()[0] ?? dialog).focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+      if (dialogs[dialogs.length - 1] !== dialog) return;
+      if (event.key === "Escape") {
+        event.stopImmediatePropagation();
+        if (closeOnEsc && closeRef.current) { event.preventDefault(); closeRef.current(); }
+      }
+      if (event.key === "Tab") {
+        const elements = focusable();
+        const first = elements[0] ?? dialog;
+        const last = elements[elements.length - 1] ?? dialog;
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) {
+          event.preventDefault(); last.focus();
+        } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog)) {
+          event.preventDefault(); first.focus();
+        }
+      }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, closeOnEsc]);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [closeOnEsc]);
 
   return (
     <div
@@ -36,6 +63,8 @@ export function Dialog({
       onClick={onClose && closeOnBackdrop ? onClose : undefined}
     >
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className={`modal ${className}`}
         role="dialog"
         aria-modal="true"

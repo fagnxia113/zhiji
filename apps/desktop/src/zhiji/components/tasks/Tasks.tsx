@@ -5,7 +5,7 @@ import { taskDueState } from "../../workflow";
 import { TaskComposer } from "./TaskComposer";
 import { TaskGroup } from "./TaskGroup";
 
-type TaskFilter = "open" | "today" | "overdue" | "stale" | "done" | "all";
+export type TaskFilter = "open" | "today" | "overdue" | "stale" | "done" | "all";
 
 const FILTER_LABEL: Record<TaskFilter, string> = {
   open: "待完成",
@@ -24,16 +24,18 @@ export function Tasks({
   onSave,
   onDelete,
   onOpenSource,
+  initialFilter = "open",
 }: {
   tasks: Task[];
-  onAdd: (title: string, due: string | null) => void;
+  onAdd: (title: string, due: string | null) => Promise<boolean>;
   onToggle: (task: Task) => void;
-  onSave: (task: Task) => void;
+  onSave: (task: Task) => Promise<boolean>;
   onDelete: (task: Task) => void;
   onOpenSource: (task: Task) => void;
+  initialFilter?: TaskFilter;
 }) {
   const [composing, setComposing] = useState(false);
-  const [filter, setFilter] = useState<TaskFilter>("open");
+  const [filter, setFilter] = useState<TaskFilter>(initialFilter);
   const [taskQuery, setTaskQuery] = useState("");
   const [assignee, setAssignee] = useState("all");
   const staleBefore = new Date(Date.now() - 14 * 86_400_000).toISOString();
@@ -47,7 +49,7 @@ export function Tasks({
     done: tasks.filter((task) => task.completed).length,
   };
   const filtered = tasks.filter((task) => {
-    if (taskQuery && !task.title.toLowerCase().includes(taskQuery.toLowerCase())) return false;
+    if (taskQuery.trim() && !`${task.title} ${taskAssignee(task)}`.toLowerCase().includes(taskQuery.trim().toLowerCase())) return false;
     if (assignee !== "all" && taskAssignee(task) !== assignee) return false;
     if (filter === "open" && task.completed) return false;
     if (filter === "today" && taskDueState(task) !== "today") return false;
@@ -55,7 +57,7 @@ export function Tasks({
     if (filter === "stale" && (task.completed || Boolean(task.dueDate) || task.createdAt >= staleBefore)) return false;
     if (filter === "done" && !task.completed) return false;
     return true;
-  });
+  }).sort((a, b) => Number(a.completed) - Number(b.completed) || (a.dueDate || "9999").localeCompare(b.dueDate || "9999") || b.createdAt.localeCompare(a.createdAt));
   return (
     <div className="tasks-page">
       <div className="tasks-intro">
@@ -71,9 +73,10 @@ export function Tasks({
       {composing && (
         <TaskComposer
           autoFocus
-          onAdd={(title, due) => {
-            onAdd(title, due || null);
-            setComposing(false);
+          onAdd={async (title, due) => {
+            const saved = await onAdd(title, due || null);
+            if (saved) setComposing(false);
+            return saved;
           }}
           onCancel={() => setComposing(false)}
         />

@@ -8,6 +8,9 @@ export type MeetingJourney = {
 };
 
 export function meetingJourney(meeting: Meeting): MeetingJourney {
+  if (meeting.minutes.trim()) {
+    return { step: 4, label: "整理完成", detail: "纪要已保存，可继续校对与跟进行动", action: "review" };
+  }
   if (!meeting.audioPath && !meeting.transcript.trim()) {
     return { step: 1, label: "等待录音", detail: "补充议程后即可开始", action: "record" };
   }
@@ -17,7 +20,7 @@ export function meetingJourney(meeting: Meeting): MeetingJourney {
   if (!meeting.minutes.trim()) {
     return { step: 3, label: "等待整理", detail: "先校对原文，再生成纪要", action: "summary" };
   }
-  return { step: 4, label: "整理完成", detail: "纪要、决策与待办已生成", action: "review" };
+  return { step: 4, label: "整理完成", detail: "纪要已保存，可继续校对与跟进行动", action: "review" };
 }
 
 export function localDateKey(date = new Date()) {

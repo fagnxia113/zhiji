@@ -1,5 +1,5 @@
 import { CalendarDays, Check, Pencil, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Task } from "../../types";
 import { taskDueState } from "../../workflow";
 import { IconButton } from "../ui";
@@ -21,28 +21,32 @@ export function TaskRow({
 }: {
   task: Task;
   onToggle: (task: Task) => void;
-  onSave: (task: Task) => void;
+  onSave: (task: Task) => Promise<boolean>;
   onDelete: (task: Task) => void;
   onOpenSource?: (task: Task) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [due, setDue] = useState(task.dueDate ?? "");
+  const [owner, setOwner] = useState(task.owner ?? "");
+  const [saving, setSaving] = useState(false);
+  const busy = useRef(false);
   const overdue = taskDueState(task) === "overdue";
 
   const startEdit = () => {
     setTitle(task.title);
     setDue(task.dueDate ?? "");
+    setOwner(task.owner ?? "");
     setEditing(true);
   };
-  const commit = () => {
+  const commit = async () => {
     const next = title.trim();
-    if (!next) {
-      setEditing(false);
-      return;
-    }
-    onSave({ ...task, title: next, dueDate: due || null });
-    setEditing(false);
+    if (!next || busy.current) return;
+    busy.current = true;
+    setSaving(true);
+    try {
+      if (await onSave({ ...task, title: next, owner: owner.trim(), dueDate: due || null })) setEditing(false);
+    } finally { busy.current = false; setSaving(false); }
   };
 
   if (editing) {
@@ -51,21 +55,27 @@ export function TaskRow({
         <input
           className="task-edit-title"
           autoFocus
+          disabled={saving}
+          aria-label="待办内容"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") commit();
-            if (e.key === "Escape") setEditing(false);
+            if (e.nativeEvent.isComposing) return;
+            if (e.key === "Enter") void commit();
+            if (e.key === "Escape" && !saving) setEditing(false);
           }}
         />
+        <input className="task-edit-owner" aria-label="负责人" placeholder="负责人" maxLength={60} value={owner} disabled={saving} onChange={e => setOwner(e.target.value)} />
         <input
           className="task-edit-due"
           type="date"
           value={due}
+          aria-label="截止日期"
+          disabled={saving}
           onChange={(e) => setDue(e.target.value)}
         />
-        <IconButton icon={Check} label="保存" onClick={commit} />
-        <IconButton icon={X} label="取消" onClick={() => setEditing(false)} />
+        <IconButton icon={Check} label="保存" disabled={saving || !title.trim()} loading={saving} onClick={() => void commit()} />
+        <IconButton icon={X} label="取消" disabled={saving} onClick={() => setEditing(false)} />
       </div>
     );
   }
@@ -73,7 +83,7 @@ export function TaskRow({
   return (
     <div className={`task-row${task.completed ? " done" : ""}`}>
       <label className="task-check">
-        <input type="checkbox" checked={task.completed} onChange={() => onToggle(task)} />
+        <input type="checkbox" aria-label={`${task.completed ? "重新打开" : "完成"}待办：${task.title}`} checked={task.completed} onChange={() => onToggle(task)} />
         <span className="checkmark">{task.completed && <Check size={13} />}</span>
       </label>
       <button className="task-title" onClick={startEdit} title="点击编辑">
@@ -85,6 +95,7 @@ export function TaskRow({
           {formatDue(task.dueDate)}
         </span>
       )}
+      {task.owner?.trim() && <span className="task-owner" title={`负责人：${task.owner}`}>{task.owner}</span>}
       {task.sourceType && (
         onOpenSource ? (
           <button className="task-source" onClick={() => onOpenSource(task)} disabled={!task.sourceId} title="打开来源">

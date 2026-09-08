@@ -14,7 +14,7 @@ export function TaskGroup({
   title: string;
   tasks: Task[];
   onToggle: (task: Task) => void;
-  onSave: (task: Task) => void;
+  onSave: (task: Task) => Promise<boolean>;
   onDelete: (task: Task) => void;
   onOpenSource: (task: Task) => void;
 }) {
