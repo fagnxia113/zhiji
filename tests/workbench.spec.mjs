@@ -1,0 +1,91 @@
+import { createRequire } from "node:module";
+import { mkdir } from "node:fs/promises";
+import assert from "node:assert/strict";
+import { installFixture } from "./workbench-fixture.mjs";
+
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
+const output = new URL("../.tmp/ui-verification/", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+await mkdir(decodeURIComponent(output), { recursive: true });
+const browser = await chromium.launch({ ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : { channel: process.env.BROWSER_CHANNEL || "chrome" }), headless: true });
+const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, locale: "zh-CN", timezoneId: "Asia/Shanghai" });
+const page = await context.newPage();
+const errors = [];
+page.on("pageerror", error => errors.push(error.message));
+await page.addInitScript(installFixture);
+try {
+  await page.goto(process.env.TEST_URL || "http://127.0.0.1:1422");
+  await page.getByRole("heading", { name: "工作台", exact: true }).waitFor();
+  await page.getByRole("button", { name: "关闭并收起到托盘", exact: true }).click();
+  assert.equal(await page.evaluate(() => window.__fixture.calls.includes("plugin:window|close")), true);
+  await page.evaluate(() => { window.__fixture.failWindow = true; });
+  await page.getByRole("button", { name: "关闭并收起到托盘", exact: true }).click();
+  await page.getByText(/窗口操作失败/).waitFor();
+  await page.evaluate(() => { window.__fixture.failWindow = false; });
+  await page.getByRole("button", { name: "关闭并收起到托盘", exact: true }).click();
+  await page.screenshot({ path: decodeURIComponent(output) + "workbench-light.png", fullPage: true });
+  await page.getByRole("button", { name: "1 今天到期", exact: true }).click();
+  assert.equal(await page.locator(".task-row").count(), 1);
+  await page.getByRole("button", { name: "新建待办", exact: true }).click();
+  await page.getByRole("textbox", { name: "待办内容" }).fill("验证失败时保留输入");
+  await page.evaluate(() => { window.__fixture.failTask = true; });
+  await page.getByRole("button", { name: "添加", exact: true }).click();
+  await page.getByText(/添加待办失败，请重试/).waitFor();
+  assert.equal(await page.getByRole("textbox", { name: "待办内容" }).inputValue(), "验证失败时保留输入");
+  await page.evaluate(() => { window.__fixture.failTask = false; });
+  await page.getByRole("button", { name: "添加", exact: true }).click();
+  await page.locator(".task-composer").waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => window.__fixture.workspace.tasks.filter(t => t.title === "验证失败时保留输入").length), 1);
+  await page.getByRole("button", { name: "行动待办", exact: true }).click();
+  await page.getByRole("button", { name: "提交首次使用流程方案", exact: true }).click();
+  await page.getByRole("textbox", { name: "负责人", exact: true }).fill("李明");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await page.locator(".task-owner").getByText("李明", { exact: true }).waitFor();
+  await page.screenshot({ path: decodeURIComponent(output) + "tasks-light.png", fullPage: true });
+  await page.getByRole("button", { name: "会议资料", exact: true }).click();
+  await page.getByRole("button", { name: "已完成", exact: true }).click();
+  assert.equal(await page.locator(".meeting-item").count(), 2);
+  await page.getByRole("textbox", { name: "搜索会议", exact: true }).fill("绝无结果");
+  await page.getByRole("button", { name: "清除筛选" }).click();
+  assert.equal(await page.locator(".meeting-item").count(), 3);
+  await page.locator(".meeting-item").first().click();
+  await page.screenshot({ path: decodeURIComponent(output) + "meeting-light.png", fullPage: true });
+  await page.getByRole("textbox", { name: "完整原文", exact: true }).fill("退出前必须保存的原文");
+  await page.evaluate(() => window.__fixture.emit("zhiji://request-exit"));
+  await page.waitForFunction(() => window.__fixture.calls.includes("finish_app_exit"));
+  assert.equal(await page.evaluate(() => window.__fixture.workspace.meetings[0].transcript), "退出前必须保存的原文");
+  await page.getByRole("button", { name: "工作台", exact: true }).click();
+  await page.getByRole("button", { name: /每周回顾/ }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.waitFor();
+  await page.keyboard.press("Shift+Tab");
+  assert.equal(await page.evaluate(() => !!document.activeElement.closest('[role="dialog"]')), true);
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "detached" });
+  await page.evaluate(() => {
+    document.documentElement.setAttribute("data-theme", "dark");
+    document.documentElement.style.colorScheme = "dark";
+  });
+  await page.waitForFunction(() => getComputedStyle(document.querySelector(".recent-row")).backgroundColor === "rgb(35, 41, 46)");
+  await page.screenshot({ path: decodeURIComponent(output) + "workbench-dark.png", fullPage: true });
+  await page.setViewportSize({ width: 400, height: 800 });
+  assert.equal(await page.evaluate(() => document.querySelector(".main-content").scrollWidth <= document.querySelector(".main-content").clientWidth), true);
+  await page.screenshot({ path: decodeURIComponent(output) + "workbench-narrow.png", fullPage: true });
+  assert.deepEqual(errors, []);
+  console.log("PASS: close command/error feedback, exit flush, dashboard navigation, task save failure/retry, owner editing, meeting filters, dialog keyboard focus, 400px layout; no page errors.");
+  for (const options of [{ failStartup: true }, { failSettings: true }, { empty: true }]) {
+    const statePage = await context.newPage();
+    await statePage.addInitScript(installFixture, options);
+    await statePage.goto(process.env.TEST_URL || "http://127.0.0.1:1422");
+    if (options.failStartup) {
+      await statePage.getByRole("heading", { name: "暂时无法打开工作台" }).waitFor();
+      await statePage.evaluate(() => { window.__fixture.failStartup = false; });
+      await statePage.getByRole("button", { name: "重新加载", exact: true }).click();
+    }
+    await statePage.getByRole("heading", { name: "工作台", exact: true }).waitFor();
+    if (options.failSettings) await statePage.getByText("部分功能需要检查", { exact: true }).waitFor();
+    if (options.empty) await statePage.getByText("还没有会议，点「一键开始录音」记录第一场。").waitFor();
+    await statePage.close();
+  }
+  console.log("PASS: startup failure and retry, partial settings failure, empty workspace.");
+} finally { await browser.close(); }

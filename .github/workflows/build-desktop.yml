@@ -37,13 +37,29 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies
-        run: pnpm --filter @zhiji/desktop install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Check desktop frontend
         run: pnpm --filter @zhiji/desktop build
 
+      - name: Install browser for UI regression tests
+        run: pnpm exec playwright install chromium
+
+      - name: Test personal workbench interactions
+        env:
+          BROWSER_CHANNEL: chromium
+        run: node tests/run-ui.mjs
+
+      - name: Upload UI verification screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workbench-ui-verification
+          path: .tmp/ui-verification/
+          if-no-files-found: ignore
+
       - name: Check desktop native code
-        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+        run: cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 
       - name: Check embedded meeting engines
         run: python -m py_compile apps/desktop/src-tauri/src/live_asr.py apps/desktop/src-tauri/src/speaker_engine.py

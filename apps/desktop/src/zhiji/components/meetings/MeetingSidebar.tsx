@@ -22,14 +22,19 @@ export function MeetingSidebar({
   formatDate,
 }: MeetingSidebarProps) {
   const [query, setQuery] = useState("");
+  const [stage, setStage] = useState("all");
+  const [order, setOrder] = useState("newest");
   const visibleMeetings = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
-    if (!normalized) return meetings;
-    return meetings.filter((meeting) =>
-      [meeting.title, meeting.context, meeting.transcript]
-        .some((value) => value.toLocaleLowerCase().includes(normalized)),
-    );
-  }, [meetings, query]);
+    return meetings.filter((meeting) => {
+      const step = meetingJourney(meeting).step;
+      if (stage === "pending" && step === 4) return false;
+      if (stage === "done" && step !== 4) return false;
+      return [meeting.title, meeting.context, meeting.transcript, meeting.minutes, meeting.notes, meeting.decisions]
+        .some((value) => value.toLocaleLowerCase().includes(normalized));
+    }).sort((a, b) => order === "oldest" ? a.startedAt.localeCompare(b.startedAt)
+      : order === "updated" ? b.updatedAt.localeCompare(a.updatedAt) : b.startedAt.localeCompare(a.startedAt));
+  }, [meetings, query, stage, order]);
 
   return (
     <aside className="meeting-sidebar" aria-label="会议列表">
@@ -56,6 +61,13 @@ export function MeetingSidebar({
           aria-label="搜索会议"
         />
       </label>
+      <div className="meeting-filter-tabs" aria-label="按整理状态筛选">
+        {[["all", "全部"], ["pending", "待整理"], ["done", "已完成"]].map(([value, label]) =>
+          <button key={value} aria-pressed={stage === value} className={stage === value ? "active" : ""} onClick={() => setStage(value)}>{label}</button>)}
+      </div>
+      <div className="meeting-list-order"><small>{visibleMeetings.length} 场会议</small><select aria-label="会议排序" value={order} onChange={event => setOrder(event.target.value)}>
+        <option value="newest">最新会议优先</option><option value="oldest">最早会议优先</option><option value="updated">最近修改优先</option>
+      </select></div>
       <div className="meeting-list-scroll">
         {visibleMeetings.map((item) => {
           const state = meetingJourney(item).label;
@@ -64,6 +76,7 @@ export function MeetingSidebar({
               className={`meeting-item ${selectedId === item.id ? "selected" : ""}`}
               onClick={() => onSelect(item)}
               key={item.id}
+              aria-current={selectedId === item.id ? "true" : undefined}
             >
               <span className={`meeting-date ${item.audioPath ? "has-audio" : ""}`}>
                 {item.audioPath ? <Mic size={14} /> : <CalendarDays size={14} />}
@@ -78,8 +91,9 @@ export function MeetingSidebar({
           );
         })}
         {visibleMeetings.length === 0 && (
-          <Empty label={query ? "没有匹配的会议。" : "还没有会议，点击右上角开始。"} />
+          <Empty label={query || stage !== "all" ? "当前筛选下没有会议。" : "还没有会议，点击右上角开始。"} />
         )}
+        {visibleMeetings.length === 0 && (query || stage !== "all") && <button className="meeting-clear-filter" onClick={() => { setQuery(""); setStage("all"); }}>清除筛选</button>}
       </div>
     </aside>
   );

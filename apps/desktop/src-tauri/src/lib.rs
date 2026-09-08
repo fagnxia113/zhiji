@@ -5,7 +5,7 @@ use chrono::Local;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 mod recorder;
@@ -804,9 +804,10 @@ fn markdown_export(meeting: &Meeting, tasks: &[Task]) -> String {
     }
     if !tasks.is_empty() {
         output.push_str("\n## 待办事项\n\n");
-        for task in tasks {
-            let due = task.due_date.as_deref().map(|date| format!("（截止 {}）", date)).unwrap_or_default();
-            output.push_str(&format!("- [{}] {}{}\n", if task.completed { "x" } else { " " }, task.title, due));
+          for task in tasks {
+              let due = task.due_date.as_deref().map(|date| format!("（截止 {}）", date)).unwrap_or_default();
+              let owner = if task.owner.trim().is_empty() { String::new() } else { format!("（负责人：{}）", task.owner.trim()) };
+              output.push_str(&format!("- [{}] {}{}{}\n", if task.completed { "x" } else { " " }, task.title, owner, due));
         }
     }
     if !meeting.notes.trim().is_empty() {
@@ -3214,6 +3215,16 @@ fn notify_due_tasks(app: &AppHandle, state: &AppState) {
     }
 }
 
+#[tauri::command]
+fn finish_app_exit(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    if state.active_recording.lock().map_err(|_| "录音状态正被占用，请稍后重试".to_string())?.is_some() {
+        return Err("录音仍在进行，请结束录音并等待保存完成".to_string());
+    }
+    live_session::shutdown_warm_engine();
+    app.exit(0);
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -3245,13 +3256,23 @@ pub fn run() {
             setup_tray(app.handle())?;
             Ok(())
         })
-        .on_window_event(|_, event| {
-            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
-                live_session::shutdown_warm_engine();
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                // Closing the window must never stop recording or dispose the webview.
+                // If tray creation was unavailable, keep a taskbar entry for recovery.
+                if window.app_handle().tray_by_id("zhiji-tray").is_some() {
+                    if let Err(error) = window.hide() {
+                        eprintln!("收起到托盘失败，尝试最小化：{error}");
+                        let _ = window.minimize();
+                    }
+                } else {
+                    let _ = window.minimize();
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
-            load_workspace, get_ai_settings, get_local_asr_status, get_speaker_engine_status,
+            load_workspace, finish_app_exit, get_ai_settings, get_local_asr_status, get_speaker_engine_status,
             export_meeting_markdown, export_all_markdown, reveal_recording,
             list_backups, create_backup, restore_backup, open_backups_folder, export_diagnostics,
             get_data_location, reveal_data_folder, schedule_data_relocation, clear_data_relocation_error,
@@ -3295,8 +3316,15 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                 }
             }
             "quit" => {
-                live_session::shutdown_warm_engine();
-                app.exit(0);
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                    // The UI flushes unsaved edits and rejects exit during active work.
+                    if let Err(error) = window.emit("zhiji://request-exit", ()) {
+                        eprintln!("请求安全退出失败：{error}");
+                    }
+                }
             }
             _ => {}
         })

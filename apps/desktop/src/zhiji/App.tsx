@@ -66,6 +66,8 @@ import {
   watchSystemTheme,
 } from "./theme";
 import { SettingsView } from "./SettingsView";
+import { WorkbenchOverview } from "./components/WorkbenchOverview";
+import type { TaskFilter } from "./components/tasks/Tasks";
 import {
   AiWorkflow,
   AudioPlayer,
@@ -334,10 +336,15 @@ export function App() {
   const [autoSaveHint, setAutoSaveHint] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [view, setView] = useState<View>("home");
+  const [taskFilter, setTaskFilter] = useState<TaskFilter>("open");
+  const openTasksView = (filter: TaskFilter = "open") => { setTaskFilter(filter); setView("tasks"); };
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [startupError, setStartupError] = useState("");
+  const [startupAttempt, setStartupAttempt] = useState(0);
+  const [startupWarning, setStartupWarning] = useState("");
   const [message, setMessage] = useState("");
   const [recordingPhase, setRecordingPhase] = useState<RecordingPhase>("idle");
   const [activeRecordingMeetingId, setActiveRecordingMeetingId] = useState("");
@@ -361,6 +368,8 @@ export function App() {
   const speakerStatusRef = useRef(speakerStatus);
   const asrEngineRef = useRef(asrEngine);
   const savedSnapshot = useRef<{ id: string; json: string }>({ id: "", json: "" });
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const taskWriteQueue = useRef<Promise<void>>(Promise.resolve());
   const processingWasActive = useRef(false);
   const processingMeetingIdRef = useRef("");
   const selectedMeetingRef = useRef<Meeting | null>(null);
@@ -435,14 +444,21 @@ export function App() {
   };
 
   const persistMeeting = useCallback(async (meeting: Meeting) => {
-    await invoke("save_meeting", { meeting });
-    const target = { id: meeting.id, json: JSON.stringify(meeting) };
-    savedSnapshot.current = target;
-    setWorkspace((current) => ({
-      ...current,
-      meetings: current.meetings.map((item) => item.id === meeting.id ? meeting : item),
-    }));
-    setAutoSaveHint("已自动保存");
+    // Serialize autosave and navigation flushes so an older write cannot win a race.
+    const write = saveQueue.current.catch(() => undefined).then(async () => {
+      await invoke("save_meeting", { meeting });
+      const target = { id: meeting.id, json: JSON.stringify(meeting) };
+      if (selectedMeetingRef.current?.id === meeting.id) {
+        savedSnapshot.current = target;
+        setAutoSaveHint(JSON.stringify(selectedMeetingRef.current) === target.json ? "已自动保存" : "有未保存更改…");
+      }
+      setWorkspace((current) => ({
+        ...current,
+        meetings: current.meetings.map((item) => item.id === meeting.id ? { ...meeting, updatedAt: new Date().toISOString() } : item),
+      }));
+    });
+    saveQueue.current = write;
+    await write;
   }, []);
 
   useEffect(() => {
@@ -669,12 +685,24 @@ export function App() {
     }
   }, [activeRecordingMeetingId, flushSelectedMeeting, notify, openRecordingMeeting, recordingBusy, recordingPhase]);
 
+  const retryStartup = async () => {
+    if (recordingBusy || processing) {
+      notify("请等待当前录音或处理完成后再重新加载。");
+      return;
+    }
+    try {
+      await flushSelectedMeeting();
+      await taskWriteQueue.current;
+      setStartupAttempt(value => value + 1);
+    } catch (error) { notify(`尚有内容未保存，暂未重新加载：${String(error)}`); }
+  };
+
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    void getCurrentWindow().onCloseRequested(async (event) => {
-      // 点击关闭 = 隐藏到托盘，知记在后台继续运行（录音、转写不中断）。
-      // 真正退出请使用托盘图标右键菜单的「退出」。
-      event.preventDefault();
+    let active = true;
+    void getCurrentWindow().onCloseRequested(async () => {
+      // Native CloseRequested owns hide/minimize, including during startup or UI errors.
+      // The process remains alive so the pending write can safely finish after hiding.
       try {
         await flushSelectedMeeting();
       } catch {
@@ -684,10 +712,29 @@ export function App() {
         localStorage.setItem("zhiji:tray-hint-shown", "1");
         notify("知记已最小化到托盘并在后台运行；退出请右键托盘图标选「退出」。");
       }
-      await getCurrentWindow().hide();
-    }).then((dispose) => { unlisten = dispose; });
-    return () => unlisten?.();
+    }).then((dispose) => { if (active) unlisten = dispose; else dispose(); })
+      .catch(error => notify(`窗口保存监听未启动：${String(error)}`));
+    return () => { active = false; unlisten?.(); };
   }, [flushSelectedMeeting, notify]);
+
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void listen("zhiji://request-exit", async () => {
+      if (recordingBusy || processing) {
+        notify("录音或处理仍在进行，请结束并等待保存完成后再退出。");
+        return;
+      }
+      try {
+        await flushSelectedMeeting();
+        await saveQueue.current;
+        await taskWriteQueue.current;
+        await invoke("finish_app_exit");
+      } catch (error) { notify(`暂未退出，请先保存工作：${String(error)}`); }
+    }).then(dispose => { if (active) unlisten = dispose; else dispose(); })
+      .catch(error => notify(`退出监听未启动：${String(error)}`));
+    return () => { active = false; unlisten?.(); };
+  }, [flushSelectedMeeting, notify, processing, recordingBusy]);
 
   const manualCheck = async () => {
     setUpdateState("checking");
@@ -749,7 +796,10 @@ export function App() {
 
   useEffect(() => {
     let active = true;
-    void Promise.all([
+    setLoading(true);
+    setStartupError("");
+    setStartupWarning("");
+    void Promise.allSettled([
       invoke<number>("recover_interrupted_recordings").then(async (count) => {
         await reload();
         return count;
@@ -764,25 +814,31 @@ export function App() {
     ])
       .then(([recovered, settings, asr, speaker, engine, recording, storedBackups, version]) => {
         if (!active) return;
-        setAiSettings(settings);
-        setAsrStatus(asr);
-        setSpeakerStatus(speaker);
-        setAsrEngine(engine);
-        if (recording) setRecordingSettings(recording);
-        setBackups(storedBackups);
-        setCurrentVersion(version);
+        if (recovered.status === "rejected") {
+          setStartupError(String(recovered.reason));
+          return;
+        }
+        if (settings.status === "fulfilled") setAiSettings(settings.value);
+        if (asr.status === "fulfilled") setAsrStatus(asr.value);
+        if (speaker.status === "fulfilled") setSpeakerStatus(speaker.value);
+        if (engine.status === "fulfilled") setAsrEngine(engine.value);
+        if (recording.status === "fulfilled" && recording.value) setRecordingSettings(recording.value);
+        if (storedBackups.status === "fulfilled") setBackups(storedBackups.value);
+        if (version.status === "fulfilled") setCurrentVersion(version.value);
+        const unavailable = [settings, asr, speaker, engine, recording, storedBackups, version].filter(result => result.status === "rejected").length;
+        if (unavailable) setStartupWarning("部分配置或引擎状态未能读取，会议资料已经打开。可在设置中检查，或重新加载后再开始录音与智能处理。");
         setShowOnboarding(localStorage.getItem("zhiji:onboarding-complete") !== "1");
-        if (recovered > 0) notify(`已恢复 ${recovered} 段上次意外中断的录音。`);
+        if (recovered.value > 0) notify(`已恢复 ${recovered.value} 段上次意外中断的录音。`);
       })
       .catch(
         (error: unknown) =>
-          active && notify(`无法打开本地资料库：${String(error)}`),
+          active && setStartupError(String(error)),
       )
       .finally(() => active && setLoading(false));
     return () => {
       active = false;
     };
-  }, []);
+  }, [startupAttempt]);
 
   useEffect(() => {
     if (!recording) return;
@@ -837,15 +893,6 @@ export function App() {
   }, [selectedMeeting, persistMeeting, processingMeetingId]);
 
   const deferredQuery = useDeferredValue(query);
-  const filteredMeetings = useMemo(
-    () =>
-      workspace.meetings.filter((meeting) =>
-        `${meeting.title} ${meeting.transcript} ${meeting.minutes}`
-          .toLowerCase()
-          .includes(deferredQuery.toLowerCase()),
-      ),
-    [deferredQuery, workspace.meetings],
-  );
 
   const createMeeting = async () => {
     if (recordingBusy) {
@@ -859,10 +906,12 @@ export function App() {
       notify(`当前会议尚未保存，已阻止新建：${String(error)}`);
       return;
     }
-    const meeting = await invoke<Meeting>("create_meeting", { notebookId: null });
-    setSelectedMeeting(meeting);
-    setView("meetings");
-    await reload();
+    try {
+      const meeting = await invoke<Meeting>("create_meeting", { notebookId: null });
+      setSelectedMeeting(meeting);
+      setWorkspace(current => ({ ...current, meetings: [meeting, ...current.meetings] }));
+      setView("meetings");
+    } catch (error) { notify(`新建会议失败：${String(error)}`); }
   };
 
   const quickRecord = async () => {
@@ -881,11 +930,13 @@ export function App() {
       notify(`当前会议尚未保存，已阻止开始新录音：${String(error)}`);
       return;
     }
-    const meeting = await invoke<Meeting>("create_meeting", { notebookId: null });
-    setSelectedMeeting(meeting);
-    setView("meetings");
-    await reload();
-    requestRecording(meeting);
+    try {
+      const meeting = await invoke<Meeting>("create_meeting", { notebookId: null });
+      setSelectedMeeting(meeting);
+      setWorkspace(current => ({ ...current, meetings: [meeting, ...current.meetings] }));
+      setView("meetings");
+      requestRecording(meeting);
+    } catch (error) { notify(`无法准备录音：${String(error)}`); }
   };
 
   const importMeetingAudio = async () => {
@@ -1073,6 +1124,12 @@ export function App() {
     }
   };
 
+  const persistTaskCommand = async (command: string, args: Record<string, unknown>) => {
+    const write = taskWriteQueue.current.catch(() => undefined).then(() => invoke<void>(command, args));
+    taskWriteQueue.current = write;
+    await write;
+  };
+
   const addTask = async (
     title: string,
     dueDate: string | null = null,
@@ -1080,30 +1137,35 @@ export function App() {
     sourceId: string | null = null,
   ) => {
     const trimmed = title.trim();
-    if (!trimmed) return;
-    await invoke("upsert_task", {
-      task: { ...newTask(trimmed, sourceType, sourceId), dueDate },
-    });
-    await reload();
-    notify("已加入待办");
+    if (!trimmed) return false;
+    const task = { ...newTask(trimmed, sourceType, sourceId), dueDate };
+    try {
+      await persistTaskCommand("upsert_task", { task });
+      setWorkspace(current => ({ ...current, tasks: [task, ...current.tasks] }));
+      notify("已加入待办");
+      return true;
+    } catch (error) { notify(`添加待办失败，请重试：${String(error)}`); return false; }
   };
 
   const saveTask = async (task: Task) => {
-    await invoke("upsert_task", { task });
-    await reload();
+    try {
+      await persistTaskCommand("upsert_task", { task });
+      setWorkspace(current => ({ ...current, tasks: current.tasks.map(item => item.id === task.id ? task : item) }));
+      return true;
+    } catch (error) { notify(`保存待办失败，请重试：${String(error)}`); return false; }
   };
 
   const deleteTask = async (task: Task) => {
     if (!window.confirm(`确定删除待办“${task.title}”吗？`)) return;
-    await invoke("delete_task", { taskId: task.id });
-    await reload();
+    try {
+      await persistTaskCommand("delete_task", { taskId: task.id });
+      setWorkspace(current => ({ ...current, tasks: current.tasks.filter(item => item.id !== task.id) }));
+      notify("待办已删除");
+    } catch (error) { notify(`删除待办失败：${String(error)}`); }
   };
 
   const toggleTask = async (task: Task) => {
-    await invoke("upsert_task", {
-      task: { ...task, completed: !task.completed },
-    });
-    await reload();
+    await saveTask({ ...task, completed: !task.completed });
   };
 
   const requestRecording = (presetMeeting?: Meeting) => {
@@ -1744,6 +1806,14 @@ export function App() {
       </div>
     );
 
+  if (startupError) return <div className="app-shell"><TitleBar /><main className="startup-error" style={{ gridColumn: "1 / -1" }} role="alert">
+    <FolderOpen size={32} />
+    <h1>暂时无法打开工作台</h1>
+    <p>本地资料库或录音恢复未能完成。请确认数据目录可访问、磁盘空间充足，然后重试。</p>
+    <details><summary>查看错误详情</summary><p>{startupError}</p></details>
+    <button className="primary-button" onClick={() => setStartupAttempt(value => value + 1)}><RefreshCw size={16} />重新加载</button>
+  </main></div>;
+
   const commands: Command[] = [
     { id: "record", label: "一键开始录音", icon: <Mic size={16} />, run: () => void quickRecord() },
     { id: "new", label: "新建会议", icon: <Plus size={16} />, run: () => void createMeeting() },
@@ -1763,7 +1833,7 @@ export function App() {
       <aside className="icon-rail">
         <button className="rail-brand" title="返回工作台" onClick={() => setView("home")}>
           <span>记</span>
-          <small>知记</small>
+          <small>知记<b>个人工作台</b></small>
         </button>
         <button className="rail-new" title="新建会议" onClick={() => void createMeeting()}>
           <Plus size={20} />
@@ -1773,22 +1843,23 @@ export function App() {
           <RailItem
             active={view === "home"}
             icon={<House size={20} />}
-            title="首页"
+            title="工作台"
             onClick={() => setView("home")}
           />
           <RailItem
             active={view === "meetings"}
             icon={<UsersRound size={20} />}
-            title="会议"
+            title="会议资料"
             onClick={() => setView("meetings")}
           />
           <RailItem
             active={view === "tasks"}
             icon={<CheckCircle2 size={20} />}
-            title="待办"
-            onClick={() => setView("tasks")}
+            title="行动待办"
+            onClick={() => openTasksView()}
           />
         </nav>
+        <div className="rail-local-status"><span /><div>本地资料库<small>记录与成果，留在自己手中</small></div></div>
         <button className={`rail-settings ${view === "settings" ? "active" : ""}`} title="设置" onClick={() => setView("settings")}>
           <Settings size={20} />
           <span>设置</span>
@@ -1827,6 +1898,7 @@ export function App() {
           </div>
         </header>
         {message && <div className="toast" role="status" aria-live="polite">{message}</div>}
+        {startupWarning && <div className="interrupted-task-banner" role="status"><div><strong>部分功能需要检查</strong><small>{startupWarning}</small></div><button className="secondary-button compact-button" onClick={() => setView("settings")}>检查设置</button><button className="secondary-button compact-button" onClick={() => void retryStartup()} disabled={recordingBusy || Boolean(processing)}>重新加载</button></div>}
         {recordingPhase !== "idle" && recordingPhase !== "checking" && (
           <div className={`global-recording-banner ${recordingPhase}`} role="status" aria-live="polite">
             {recordingPhase === "recording" ? <span className="recording-live-dot" /> : <LoaderCircle size={17} className="spin" />}
@@ -1921,13 +1993,17 @@ export function App() {
             }}
             onQuickRecord={() => void quickRecord()}
             onOpenPalette={() => setPaletteOpen(true)}
-            onOpenTasks={() => setView("tasks")}
+            onOpenTasks={openTasksView}
             onOpenMeetings={() => setView("meetings")}
+            aiReady={aiSettings.isConfigured}
+            transcriptionReady={asrEngine.provider === "cloud" ? asrEngine.cloudKeySaved : (asrStatus.installed && asrStatus.runtimeAvailable) || (speakerStatus.installed && speakerStatus.modelsReady)}
+            onSettings={() => setView("settings")}
+            onReport={() => setWeeklyReportOpen(true)}
           />
         )}
         {view === "meetings" && (
           <Meetings
-            meetings={filteredMeetings}
+            meetings={workspace.meetings}
             meeting={selectedMeeting}
             tasks={workspace.tasks}
             onSelect={(meeting) => void selectMeeting(meeting)}
@@ -1938,9 +2014,9 @@ export function App() {
             onExport={() => void exportMeeting()}
             onCopy={() => void copyMeeting()}
             onRevealRecording={() => void revealRecording()}
-            onTask={(title, due) => void addTask(title, due, "meeting", selectedMeeting?.id ?? null)}
+            onTask={(title, due) => addTask(title, due, "meeting", selectedMeeting?.id ?? null)}
             onToggleTask={(task) => void toggleTask(task)}
-            onSaveTask={(task) => void saveTask(task)}
+            onSaveTask={saveTask}
             onDeleteTask={(task) => void deleteTask(task)}
             recording={recordingWorkspaceLocked}
             recordingFinalizing={recordingPhase === "finalizing"}
@@ -1969,10 +2045,12 @@ export function App() {
         )}
         {view === "tasks" && (
           <Tasks
+            key={taskFilter}
+            initialFilter={taskFilter}
             tasks={workspace.tasks}
-            onAdd={(title, due) => void addTask(title, due)}
+            onAdd={(title, due) => addTask(title, due)}
             onToggle={(task) => void toggleTask(task)}
-            onSave={(task) => void saveTask(task)}
+            onSave={saveTask}
             onDelete={(task) => void deleteTask(task)}
             onOpenSource={(task) => {
               const meeting = workspace.meetings.find((item) => item.id === task.sourceId);
@@ -2131,14 +2209,19 @@ function Home({
   onOpenPalette,
   onOpenTasks,
   onOpenMeetings,
+  aiReady, transcriptionReady, onSettings, onReport,
 }: {
   workspace: Workspace;
   onMeeting: () => void;
   onOpenMeeting: (meeting: Meeting) => void;
   onQuickRecord: () => void;
   onOpenPalette: () => void;
-  onOpenTasks: () => void;
+  onOpenTasks: (filter?: TaskFilter) => void;
   onOpenMeetings: () => void;
+  aiReady: boolean;
+  transcriptionReady: boolean;
+  onSettings: () => void;
+  onReport: () => void;
 }) {
   const openTasks = workspace.tasks.filter((task) => !task.completed);
   const overdue = openTasks.filter((task) => taskDueState(task) === "overdue");
@@ -2158,8 +2241,8 @@ function Home({
       <section className="home-command-card">
         <div className="home-command-copy">
           <span className="home-date-label">{todayFullDate()}</span>
-          <h2>{greeting()}，准备记录下一场会议吗？</h2>
-          <p>直接开始录音，知记会同步保存声音、生成实时字幕，并在会后整理完整原文。</p>
+          <h2>{greeting()}，让今天的工作更有条理。</h2>
+          <p>记录讨论，整理思路，跟进行动。从一场会议到一周成果，在你的个人工作台里有序推进。</p>
         </div>
         <div className="home-command-actions">
           <button className="primary-button record-cta" onClick={onQuickRecord}>
@@ -2173,6 +2256,8 @@ function Home({
           </button>
         </div>
       </section>
+
+      <WorkbenchOverview workspace={workspace} aiReady={aiReady} transcriptionReady={transcriptionReady} onMeetings={onOpenMeetings} onTasks={() => onOpenTasks()} onSettings={onSettings} onReport={onReport} />
 
       {continueMeeting && (
         <section className="continue-meeting-card">
@@ -2229,16 +2314,16 @@ function Home({
         <section className="home-focus-card">
           <div className="home-focus-head">
             <div><h3>今日行动</h3><small>优先处理临近到期事项</small></div>
-            <button onClick={onOpenTasks}>全部待办<ChevronRight size={13} /></button>
+            <button onClick={() => onOpenTasks()}>全部待办<ChevronRight size={13} /></button>
           </div>
           <div className="home-task-metrics">
-            <button className={overdue.length ? "attention" : ""} onClick={onOpenTasks}><strong>{overdue.length}</strong><span>已逾期</span></button>
-            <button className={dueToday.length ? "today" : ""} onClick={onOpenTasks}><strong>{dueToday.length}</strong><span>今天到期</span></button>
-            <button onClick={onOpenTasks}><strong>{openTasks.length}</strong><span>待完成</span></button>
+            <button className={overdue.length ? "attention" : ""} onClick={() => onOpenTasks("overdue")}><strong>{overdue.length}</strong><span>已逾期</span></button>
+            <button className={dueToday.length ? "today" : ""} onClick={() => onOpenTasks("today")}><strong>{dueToday.length}</strong><span>今天到期</span></button>
+            <button onClick={() => onOpenTasks()}><strong>{openTasks.length}</strong><span>待完成</span></button>
           </div>
           <div className="home-task-list">
             {upcomingTasks.map((task) => (
-              <button key={task.id} onClick={onOpenTasks}>
+              <button key={task.id} onClick={() => onOpenTasks()}>
                 <span className={`task-mini-check ${taskDueState(task)}`} />
                 <span><strong>{task.title}</strong><small>{taskDueText(task)}</small></span>
                 <ChevronRight size={14} />
@@ -2309,9 +2394,9 @@ function Meetings({
   onExport: () => void;
   onCopy: () => void;
   onRevealRecording: () => void;
-  onTask: (title: string, due: string | null) => void;
+  onTask: (title: string, due: string | null) => Promise<boolean>;
   onToggleTask: (task: Task) => void;
-  onSaveTask: (task: Task) => void;
+  onSaveTask: (task: Task) => Promise<boolean>;
   onDeleteTask: (task: Task) => void;
   recording: boolean;
   recordingFinalizing: boolean;
@@ -2566,9 +2651,10 @@ function Meetings({
             {taskComposing && (
               <TaskComposer
                 autoFocus
-                onAdd={(title, due) => {
-                  onTask(title, due);
-                  setTaskComposing(false);
+                onAdd={async (title, due) => {
+                  const saved = await onTask(title, due);
+                  if (saved) setTaskComposing(false);
+                  return saved;
                 }}
                 onCancel={() => setTaskComposing(false)}
               />
@@ -2800,7 +2886,7 @@ function Meetings({
 }
 
 const pageCopy: Record<View, { title: string; subtitle: string }> = {
-  home: { title: "工作台", subtitle: "从录音到纪要，继续最重要的一步" },
+  home: { title: "工作台", subtitle: "把讨论、行动与每周成果，放在一处" },
   meetings: { title: "会议", subtitle: "录音、原文、纪要与行动项" },
   tasks: { title: "待办", subtitle: "集中跟进每场会议产生的行动项" },
   settings: { title: "设置", subtitle: "录音、转写、智能纪要与数据保护" },

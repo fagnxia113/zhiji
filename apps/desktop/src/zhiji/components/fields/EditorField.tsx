@@ -14,6 +14,7 @@ export function EditorField({ label, hint, value, onChange, placeholder }: Edito
         <small>{hint}</small>
       </div>
       <textarea
+        aria-label={label}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
