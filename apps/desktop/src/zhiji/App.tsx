@@ -714,6 +714,14 @@ export function App() {
       } catch {
         notify("当前会议尚未保存成功；从托盘重新打开知记后修改仍在，可再次保存。");
       }
+      // Belt and braces: the Rust handler hides first, but re-assert it here so a
+      // missed native listener can never leave the window on screen.
+      try {
+        await getCurrentWindow().hide();
+        void invoke("trace_close_js", { message: "JS hide() done" }).catch(() => {});
+      } catch (error) {
+        void invoke("trace_close_js", { message: `JS hide() failed: ${String(error)}` }).catch(() => {});
+      }
       if (!localStorage.getItem("zhiji:tray-hint-shown")) {
         localStorage.setItem("zhiji:tray-hint-shown", "1");
         notify("知记已最小化到托盘并在后台运行；退出请右键托盘图标选「退出」。");

@@ -77,17 +77,13 @@ try {
     do {
         Start-Sleep -Milliseconds 300
         $taskApp.Refresh()
-        if ($taskApp.HasExited) {
-            Show-TraceLogs -InstallDir $taskInstallDir
-            throw "App exited during startup: $($taskApp.ExitCode)"
-        }
+        if ($taskApp.HasExited) { throw "App exited during startup: $($taskApp.ExitCode)" }
         if ($taskApp.MainWindowTitle -ne $taskLastTitle) {
             $taskLastTitle = $taskApp.MainWindowTitle
             Write-Output "Observed window: $taskLastTitle"
         }
     } while (($taskApp.MainWindowHandle -eq [IntPtr]::Zero -or $taskApp.MainWindowTitle -ne '知记 - 个人工作台') -and (Get-Date) -lt $taskDeadline)
     if ($taskApp.MainWindowTitle -ne '知记 - 个人工作台') {
-        Show-TraceLogs -InstallDir $taskInstallDir
         throw "Expected workbench window did not appear; observed: $($taskApp.MainWindowTitle)"
     }
 
@@ -114,10 +110,7 @@ try {
 
     Start-Sleep -Seconds 2
     $taskApp.Refresh()
-    if ($taskApp.HasExited) {
-        Show-TraceLogs -InstallDir $taskInstallDir
-        throw "App exited before the close test: $($taskApp.ExitCode)"
-    }
+    if ($taskApp.HasExited) { throw "App exited before the close test: $($taskApp.ExitCode)" }
     Show-ZhijiProcesses -Label 'before close'
     Write-Output "Closing actual workbench: PID $($taskApp.Id), HWND $($taskApp.MainWindowHandle)"
     if (-not $taskApp.CloseMainWindow()) { throw 'Windows could not send the close request.' }
@@ -125,29 +118,31 @@ try {
     do {
         Start-Sleep -Milliseconds 300
         $taskApp.Refresh()
-        if ($taskApp.HasExited) {
-            Show-TraceLogs -InstallDir $taskInstallDir
-            throw "Closing the window terminated the app: $($taskApp.ExitCode)"
-        }
+        if ($taskApp.HasExited) { throw "Closing the window terminated the app: $($taskApp.ExitCode)" }
     } while ($taskApp.MainWindowHandle -ne [IntPtr]::Zero -and (Get-Date) -lt $taskDeadline)
     if ($taskApp.MainWindowHandle -ne [IntPtr]::Zero) { throw 'Main window remained visible after the close request.' }
+    Write-Output "Window hidden; observing background survival for 3s (handle=$($taskApp.MainWindowHandle))"
     Start-Sleep -Seconds 3
     $taskApp.Refresh()
-    if ($taskApp.HasExited) {
-        Show-TraceLogs -InstallDir $taskInstallDir
-        throw "App exited after hiding: $($taskApp.ExitCode)"
-    }
+    if ($taskApp.HasExited) { throw "App exited after hiding: $($taskApp.ExitCode)" }
     Write-Output 'PASS: installed app hides its main window and continues running after native close.'
 } finally {
-    $taskApp.Refresh()
-    if (-not $taskApp.HasExited) { Stop-Process -Id $taskApp.Id -Force }
-    Get-Process -Name zhiji -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.Id -Force }
+    # Cleanup must never throw: a failing Stop-Process used to abort the finally
+    # block before the trace logs were dumped, hiding the real failure reason.
+    try {
+        $taskApp.Refresh()
+        if (-not $taskApp.HasExited) { Stop-Process -Id $taskApp.Id -Force -ErrorAction SilentlyContinue }
+    } catch { }
+    Get-Process -Name zhiji -ErrorAction SilentlyContinue | ForEach-Object {
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+    }
     # Deep diagnostics: the redirected app logs explain which close path ran.
-    Get-ChildItem -LiteralPath $taskLogs -File | ForEach-Object {
+    Get-ChildItem -LiteralPath $taskLogs -File -ErrorAction SilentlyContinue | ForEach-Object {
         Write-Output "Diagnostics: $($_.Name) ($($_.Length) bytes)"
         Get-Content -LiteralPath $_.FullName -ErrorAction SilentlyContinue
     }
     # The Rust close-trace file lives next to the installed exe (GUI subsystem
     # stderr does not reach the redirected log files on the runner).
     Show-TraceLogs -InstallDir $taskInstallDir
+    Show-ZhijiProcesses -Label 'after cleanup'
 }

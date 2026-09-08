@@ -3385,20 +3385,20 @@ pub fn run() {
                     trace_close(&trace_dir, "CloseRequested received, preventing close");
                     api.prevent_close();
                     // Closing the window must never stop recording or dispose the webview.
-                    // If tray creation was unavailable, keep a taskbar entry for recovery.
+                    // Always hide instead of minimizing: a minimized window is still
+                    // visible to the OS, so the app keeps a window handle and never
+                    // looks like it reached the tray. Ctrl+Shift+K (or relaunch)
+                    // brings it back when the tray icon is unavailable.
                     let tray_present = window.app_handle().tray_by_id("zhiji-tray").is_some();
-                    if tray_present {
-                        trace_close(&trace_dir, "tray present, hiding window");
-                        if let Err(error) = window.hide() {
-                            eprintln!("收起到托盘失败，尝试最小化：{error}");
-                            let _ = window.minimize();
-                        }
-                        trace_close(&trace_dir, "window.hide() returned");
-                    } else {
-                        trace_close(&trace_dir, "tray missing, minimizing instead");
+                    trace_close(&trace_dir, &format!("closing with tray_present={tray_present}"));
+                    if let Err(error) = window.hide() {
+                        trace_close(&trace_dir, &format!("window.hide() failed: {error}; falling back to minimize"));
                         let _ = window.minimize();
-                        trace_close(&trace_dir, "window.minimize() returned");
                     }
+                    trace_close(
+                        &trace_dir,
+                        &format!("close handled; visible={:?}", window.is_visible()),
+                    );
                 }
                 tauri::WindowEvent::Destroyed => {
                     trace_close(&trace_dir, "WindowEvent::Destroyed (window disposed - process will exit if last)");
