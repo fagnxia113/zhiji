@@ -3284,6 +3284,12 @@ fn trace_close(dir: &std::path::Path, message: &str) {
     }
 }
 
+#[tauri::command]
+fn trace_close_js(message: String) {
+    let dir = std::env::current_exe().map(|p| p.parent().map(std::path::Path::to_path_buf).unwrap_or_default()).unwrap_or_default();
+    trace_close(&dir, &format!("[js] {message}"));
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -3323,27 +3329,35 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                let trace_dir = std::env::current_exe().map(|p| p.parent().map(std::path::Path::to_path_buf).unwrap_or_default()).unwrap_or_default();
-                trace_close(&trace_dir, "CloseRequested received, preventing close");
-                api.prevent_close();
-                // Closing the window must never stop recording or dispose the webview.
-                // If tray creation was unavailable, keep a taskbar entry for recovery.
-                let tray_present = window.app_handle().tray_by_id("zhiji-tray").is_some();
-                if tray_present {
-                    trace_close(&trace_dir, "tray present, hiding window");
-                    if let Err(error) = window.hide() {
-                        eprintln!("收起到托盘失败，尝试最小化：{error}");
+            let trace_dir = std::env::current_exe().map(|p| p.parent().map(std::path::Path::to_path_buf).unwrap_or_default()).unwrap_or_default();
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    trace_close(&trace_dir, "CloseRequested received, preventing close");
+                    api.prevent_close();
+                    // Closing the window must never stop recording or dispose the webview.
+                    // If tray creation was unavailable, keep a taskbar entry for recovery.
+                    let tray_present = window.app_handle().tray_by_id("zhiji-tray").is_some();
+                    if tray_present {
+                        trace_close(&trace_dir, "tray present, hiding window");
+                        if let Err(error) = window.hide() {
+                            eprintln!("收起到托盘失败，尝试最小化：{error}");
+                            let _ = window.minimize();
+                        }
+                        trace_close(&trace_dir, "window.hide() returned");
+                    } else {
+                        trace_close(&trace_dir, "tray missing, minimizing instead");
                         let _ = window.minimize();
+                        trace_close(&trace_dir, "window.minimize() returned");
                     }
-                } else {
-                    trace_close(&trace_dir, "tray missing, minimizing instead");
-                    let _ = window.minimize();
                 }
+                tauri::WindowEvent::Destroyed => {
+                    trace_close(&trace_dir, "WindowEvent::Destroyed (window disposed - process will exit if last)");
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
-            load_workspace, finish_app_exit, get_ai_settings, get_local_asr_status, get_speaker_engine_status,
+            load_workspace, finish_app_exit, trace_close_js, get_ai_settings, get_local_asr_status, get_speaker_engine_status,
             export_meeting_markdown, export_all_markdown, reveal_recording,
             list_backups, create_backup, restore_backup, open_backups_folder, export_diagnostics,
             get_data_location, reveal_data_folder, schedule_data_relocation, clear_data_relocation_error,
@@ -3359,8 +3373,14 @@ pub fn run() {
             rename_meeting, delete_meeting, rename_speaker,
             list_qa_messages, ask_meeting_question, clear_qa_history, generate_weekly_report
         ])
-        .run(tauri::generate_context!())
-        .expect("启动知记时发生错误");
+        .build(tauri::generate_context!())
+        .expect("启动知记时发生错误")
+        .run(|_app_handle, event| {
+            if let tauri::RunEvent::ExitRequested { code, .. } = event {
+                let dir = std::env::current_exe().map(|p| p.parent().map(std::path::Path::to_path_buf).unwrap_or_default()).unwrap_or_default();
+                trace_close(&dir, &format!("RunEvent::ExitRequested code={code:?} - event loop about to exit"));
+            }
+        });
 }
 
 /// 系统托盘：常驻，右键菜单提供「打开知记 / 退出」。配合开机自启，即使窗口被关闭也能一键唤起。

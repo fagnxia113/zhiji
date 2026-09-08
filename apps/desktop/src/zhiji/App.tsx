@@ -705,9 +705,12 @@ export function App() {
       // which would remove the last window and exit the whole process.
       // Rust's CloseRequested handler owns hide/minimize; preventing default
       // here keeps the process alive so pending writes finish after hiding.
+      void invoke("trace_close_js", { message: "JS onCloseRequested entered, calling preventDefault" }).catch(() => {});
       event.preventDefault();
+      void invoke("trace_close_js", { message: "JS preventDefault done" }).catch(() => {});
       try {
         await flushSelectedMeeting();
+        void invoke("trace_close_js", { message: "JS flush done" }).catch(() => {});
       } catch {
         notify("当前会议尚未保存成功；从托盘重新打开知记后修改仍在，可再次保存。");
       }
@@ -715,7 +718,13 @@ export function App() {
         localStorage.setItem("zhiji:tray-hint-shown", "1");
         notify("知记已最小化到托盘并在后台运行；退出请右键托盘图标选「退出」。");
       }
-    }).then((dispose) => { if (active) unlisten = dispose; else dispose(); })
+      void invoke("trace_close_js", { message: "JS handler complete" }).catch(() => {});
+    }).then((dispose) => {
+      if (active) {
+        unlisten = dispose;
+        void invoke("trace_close_js", { message: "JS close listener registered" }).catch(() => {});
+      } else dispose();
+    })
       .catch(error => notify(`窗口保存监听未启动：${String(error)}`));
     return () => { active = false; unlisten?.(); };
   }, [flushSelectedMeeting, notify]);
