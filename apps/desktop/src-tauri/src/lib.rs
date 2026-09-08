@@ -11,6 +11,9 @@ use uuid::Uuid;
 mod recorder;
 mod live_session;
 
+#[cfg(test)]
+mod storage_tests;
+
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
@@ -545,13 +548,30 @@ fn move_entry(source: &Path, destination: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// 把 src 目录树下的文件递归迁到 dst（保持相对结构）。目标已有同名文件则跳过并清理源副本，
-/// 保证「迁移到一半中断、下次启动续迁」时不会重复搬移。
+fn files_match(source: &Path, destination: &Path) -> Result<bool, String> {
+    let mut left = fs::File::open(source).map_err(app_error)?;
+    let mut right = fs::File::open(destination).map_err(app_error)?;
+    let mut remaining = left.metadata().map_err(app_error)?.len();
+    if remaining != right.metadata().map_err(app_error)?.len() { return Ok(false); }
+    let mut left_buffer = [0u8; 65536];
+    let mut right_buffer = [0u8; 65536];
+    while remaining > 0 {
+        let count = remaining.min(left_buffer.len() as u64) as usize;
+        left.read_exact(&mut left_buffer[..count]).map_err(app_error)?;
+        right.read_exact(&mut right_buffer[..count]).map_err(app_error)?;
+        if left_buffer[..count] != right_buffer[..count] { return Ok(false); }
+        remaining -= count as u64;
+    }
+    Ok(true)
+}
+
+/// 断点续迁只清理内容相同的源副本；同名但内容不同必须保留两份资料。
 fn move_tree(source: &Path, destination: &Path) -> Result<(), String> {
     let mut stack: Vec<(PathBuf, PathBuf)> = vec![(source.to_path_buf(), destination.to_path_buf())];
     while let Some((from, to)) = stack.pop() {
         let entries = fs::read_dir(&from).map_err(|error| format!("读取 {} 失败：{error}", from.display()))?;
-        for entry in entries.flatten() {
+        for entry in entries {
+            let entry = entry.map_err(app_error)?;
             let child_from = entry.path();
             let child_to = to.join(entry.file_name());
             if child_from.is_dir() {
@@ -559,7 +579,10 @@ fn move_tree(source: &Path, destination: &Path) -> Result<(), String> {
                 stack.push((child_from, child_to));
             } else if child_from.is_file() {
                 if child_to.exists() {
-                    let _ = fs::remove_file(&child_from);
+                    if !files_match(&child_from, &child_to)? {
+                        return Err(format!("迁移遇到同名但内容不同的文件，已保留两份资料：{}。请检查目标目录后重试。", child_to.display()));
+                    }
+                    fs::remove_file(&child_from).map_err(app_error)?;
                 } else {
                     move_entry(&child_from, &child_to)?;
                 }
@@ -613,6 +636,17 @@ fn open_state(app: &AppHandle) -> Result<AppState, Box<dyn Error>> {
     let vcrt_dir = resource_folder(&resource_dir, "vcrt", "vcruntime140.dll");
     let database_path = data_dir.join("zhiji.sqlite3");
     let connection = Connection::open(&database_path)?;
+    initialize_database(&connection)?;
+    if setting(&connection, "asr_provider", "local").is_ok_and(|provider| provider == "local") {
+        live_session::warm_engine(speaker_engine_dir.clone(), speaker_models_dir.clone());
+    }
+    if let Err(error) = create_daily_backup(&connection, &backups_dir) {
+        eprintln!("自动备份失败：{error}");
+    }
+    Ok(AppState { connection: Mutex::new(connection), data_dir, default_data_dir, config_dir, backups_dir, models_dir, recordings_dir, runtime_dir, ffmpeg_dir, vcrt_dir, speaker_engine_dir, speaker_models_dir, cancel_flag: Arc::new(AtomicBool::new(false)), cancel_child: Arc::new(Mutex::new(None)), active_recording: Mutex::new(None), recorders: Mutex::new(HashMap::new()), live_sessions: Mutex::new(HashMap::new()), sleep_prevention: Mutex::new(None) })
+}
+
+fn initialize_database(connection: &Connection) -> Result<(), Box<dyn Error>> {
     connection.execute_batch(
         "
         PRAGMA foreign_keys = ON;
@@ -644,20 +678,14 @@ fn open_state(app: &AppHandle) -> Result<AppState, Box<dyn Error>> {
         CREATE INDEX IF NOT EXISTS idx_qa_meeting ON qa_messages(meeting_id, created_at);
         ",
     )?;
-    ensure_column(&connection, "meetings", "speaker_segments", "TEXT NOT NULL DEFAULT '[]'")?;
-    ensure_column(&connection, "meetings", "speaker_names", "TEXT NOT NULL DEFAULT '{}'")?;
-    ensure_column(&connection, "meetings", "context", "TEXT NOT NULL DEFAULT ''")?;
-    ensure_column(&connection, "meetings", "notes", "TEXT NOT NULL DEFAULT ''")?;
-    ensure_column(&connection, "tasks", "origin", "TEXT NOT NULL DEFAULT 'manual'")?;
-    ensure_column(&connection, "tasks", "owner", "TEXT NOT NULL DEFAULT ''")?;
-    clean_stored_transcripts(&connection)?;
-    if setting(&connection, "asr_provider", "local").is_ok_and(|provider| provider == "local") {
-        live_session::warm_engine(speaker_engine_dir.clone(), speaker_models_dir.clone());
-    }
-    if let Err(error) = create_daily_backup(&connection, &backups_dir) {
-        eprintln!("自动备份失败：{error}");
-    }
-    Ok(AppState { connection: Mutex::new(connection), data_dir, default_data_dir, config_dir, backups_dir, models_dir, recordings_dir, runtime_dir, ffmpeg_dir, vcrt_dir, speaker_engine_dir, speaker_models_dir, cancel_flag: Arc::new(AtomicBool::new(false)), cancel_child: Arc::new(Mutex::new(None)), active_recording: Mutex::new(None), recorders: Mutex::new(HashMap::new()), live_sessions: Mutex::new(HashMap::new()), sleep_prevention: Mutex::new(None) })
+    ensure_column(connection, "meetings", "speaker_segments", "TEXT NOT NULL DEFAULT '[]'")?;
+    ensure_column(connection, "meetings", "speaker_names", "TEXT NOT NULL DEFAULT '{}'")?;
+    ensure_column(connection, "meetings", "context", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(connection, "meetings", "notes", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(connection, "tasks", "origin", "TEXT NOT NULL DEFAULT 'manual'")?;
+    ensure_column(connection, "tasks", "owner", "TEXT NOT NULL DEFAULT ''")?;
+    clean_stored_transcripts(connection)?;
+    Ok(())
 }
 
 fn ensure_column(connection: &Connection, table: &str, column: &str, definition: &str) -> Result<(), Box<dyn Error>> {
@@ -741,13 +769,13 @@ fn backup_infos(backups_dir: &Path) -> Result<Vec<BackupInfo>, String> {
 
 fn create_backup_snapshot(connection: &Connection, backups_dir: &Path) -> Result<BackupInfo, String> {
     fs::create_dir_all(backups_dir).map_err(app_error)?;
-    let file_name = format!("zhiji-backup-{}.sqlite3", Local::now().format("%Y%m%d-%H%M%S-%3f"));
+    let file_name = format!("zhiji-backup-{}-{}.sqlite3", Local::now().format("%Y%m%d-%H%M%S-%3f"), Uuid::new_v4());
     let path = backups_dir.join(&file_name);
     let escaped_path = path.to_string_lossy().replace('\'', "''");
     connection.execute_batch(&format!("VACUUM INTO '{escaped_path}'")).map_err(app_error)?;
 
     let backups = backup_infos(backups_dir)?;
-    for backup in backups.iter().skip(2) {
+    for backup in backups.iter().filter(|backup| backup.file_name != file_name).skip(1) {
         let stale = backups_dir.join(&backup.file_name);
         if stale.parent() == Some(backups_dir) {
             let _ = fs::remove_file(stale);
@@ -1749,7 +1777,12 @@ fn create_backup(state: State<'_, AppState>) -> Result<BackupInfo, String> {
 
 #[tauri::command]
 fn restore_backup(state: State<'_, AppState>, file_name: String) -> Result<Workspace, String> {
-    let path = safe_backup_path(&state.backups_dir, &file_name)?;
+    let mut connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+    restore_database_backup(&mut connection, &state.backups_dir, &file_name)
+}
+
+fn restore_database_backup(connection: &mut Connection, backups_dir: &Path, file_name: &str) -> Result<Workspace, String> {
+    let path = safe_backup_path(backups_dir, file_name)?;
     let source = Connection::open(path).map_err(|error| format!("无法打开备份：{error}"))?;
     let integrity: String = source.query_row("PRAGMA integrity_check", [], |row| row.get(0)).map_err(app_error)?;
     if integrity != "ok" { return Err("备份文件校验失败，未恢复任何数据".to_string()); }
@@ -1776,9 +1809,19 @@ fn restore_backup(state: State<'_, AppState>, file_name: String) -> Result<Works
             .map_err(app_error)?
     };
 
-    let mut connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-    create_backup_snapshot(&connection, &state.backups_dir)?;
+    // Read every source table before modifying live data. Older backups may
+    // predate question history; their restored history is empty.
+    let has_questions: bool = source.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'qa_messages')", [], |row| row.get(0)).map_err(app_error)?;
+    let restored_questions = if has_questions {
+        let mut statement = source.prepare("SELECT id, meeting_id, question, answer, created_at FROM qa_messages").map_err(app_error)?;
+        let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))
+            .map_err(app_error)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(app_error)?
+    } else { Vec::new() };
+    drop(source);
+    create_backup_snapshot(connection, backups_dir)?;
     let transaction = connection.transaction().map_err(app_error)?;
+    transaction.execute("DELETE FROM qa_messages", []).map_err(app_error)?;
     transaction.execute("DELETE FROM tasks", []).map_err(app_error)?;
     transaction.execute("DELETE FROM meetings", []).map_err(app_error)?;
     transaction.execute("DELETE FROM notes", []).map_err(app_error)?;
@@ -1806,6 +1849,12 @@ fn restore_backup(state: State<'_, AppState>, file_name: String) -> Result<Works
         transaction.execute(
             "INSERT INTO tasks (id, title, source_type, source_id, completed, due_date, created_at, origin, owner) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![task.id, task.title, task.source_type, task.source_id, task.completed, task.due_date, task.created_at, task.origin, task.owner],
+        ).map_err(app_error)?;
+    }
+    for (id, meeting_id, question, answer, created_at) in restored_questions {
+        transaction.execute(
+            "INSERT INTO qa_messages (id, meeting_id, question, answer, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, meeting_id, question, answer, created_at],
         ).map_err(app_error)?;
     }
     for (key, value) in restored_settings {
@@ -3253,7 +3302,9 @@ pub fn run() {
             let state = open_state(app.handle())?;
             notify_due_tasks(app.handle(), &state);
             app.manage(state);
-            setup_tray(app.handle())?;
+            if let Err(error) = setup_tray(app.handle()) {
+                eprintln!("系统托盘不可用，将使用任务栏最小化：{error}");
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
