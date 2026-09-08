@@ -28,10 +28,11 @@
 ## 3. 发版步骤
 
 1. 修改代码并完成本地自测（前端 `tsc --noEmit` + `vite build` 可在本机跑；Rust 编译只能靠 CI）。
-2. **同步版本号，两处必须完全一致**：
+2. **同步版本号，三处必须完全一致**：
    - `apps/desktop/src-tauri/tauri.conf.json` 根级 `"version"`
    - `apps/desktop/src-tauri/Cargo.toml` 的 `[package] version`
-   - 例如 `1.1.2` → `1.1.3`
+   - **`Cargo.lock` 里 `[[package]] name = "zhiji-desktop"` 的 `version`**（仓库已提交 Cargo.lock，CI 用 `cargo check --locked`，漏改会直接失败：`cannot update the lock file ... because --locked was passed`）
+   - 例如 `2.0.1` → `2.0.2`
 3. 提交：
    ```
    git add -A
