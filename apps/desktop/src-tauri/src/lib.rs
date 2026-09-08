@@ -80,7 +80,7 @@ impl SleepGuard {
         use windows_sys::Win32::System::Threading::REASON_CONTEXT;
         // 未提供理由字符串（SimpleReasonString 留空），仅在 powercfg /requests 中显示为空原因，
         // 避免在守卫内长期持有宽字符串的生命周期。
-        let mut context: REASON_CONTEXT = unsafe { std::mem::zeroed() };
+        let context: REASON_CONTEXT = unsafe { std::mem::zeroed() };
         let handle = unsafe { PowerCreateRequest(&context) };
         if handle.is_null() || handle == INVALID_HANDLE_VALUE {
             eprintln!("创建防睡眠电源请求失败");
