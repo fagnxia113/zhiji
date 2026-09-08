@@ -3309,15 +3309,18 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                eprintln!("[zhiji-close] CloseRequested received, preventing close");
                 api.prevent_close();
                 // Closing the window must never stop recording or dispose the webview.
                 // If tray creation was unavailable, keep a taskbar entry for recovery.
                 if window.app_handle().tray_by_id("zhiji-tray").is_some() {
+                    eprintln!("[zhiji-close] tray present, hiding window");
                     if let Err(error) = window.hide() {
                         eprintln!("收起到托盘失败，尝试最小化：{error}");
                         let _ = window.minimize();
                     }
                 } else {
+                    eprintln!("[zhiji-close] tray missing, minimizing instead");
                     let _ = window.minimize();
                 }
             }
