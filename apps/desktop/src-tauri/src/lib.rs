@@ -3274,6 +3274,16 @@ fn finish_app_exit(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
     Ok(())
 }
 
+/// CI 关闭冒烟测试的诊断日志：写入 exe 同目录的 zhiji-close-trace.log。
+/// GUI 子系统的 stderr 不进入重定向文件，必须落盘才能在 runner 上看到。
+fn trace_close(dir: &std::path::Path, message: &str) {
+    use std::io::Write;
+    let path = dir.join("zhiji-close-trace.log");
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{} {message}", now());
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -3302,25 +3312,32 @@ pub fn run() {
             let state = open_state(app.handle())?;
             notify_due_tasks(app.handle(), &state);
             app.manage(state);
+            let trace_dir = std::env::current_exe().map(|p| p.parent().map(std::path::Path::to_path_buf).unwrap_or_default()).unwrap_or_default();
             if let Err(error) = setup_tray(app.handle()) {
                 eprintln!("系统托盘不可用，将使用任务栏最小化：{error}");
+                trace_close(&trace_dir, &format!("setup_tray failed: {error}"));
+            } else {
+                trace_close(&trace_dir, &format!("setup_tray ok (icon available: {})", app.default_window_icon().is_some()));
             }
+            trace_close(&trace_dir, "setup complete, entering event loop");
             Ok(())
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                eprintln!("[zhiji-close] CloseRequested received, preventing close");
+                let trace_dir = std::env::current_exe().map(|p| p.parent().map(std::path::Path::to_path_buf).unwrap_or_default()).unwrap_or_default();
+                trace_close(&trace_dir, "CloseRequested received, preventing close");
                 api.prevent_close();
                 // Closing the window must never stop recording or dispose the webview.
                 // If tray creation was unavailable, keep a taskbar entry for recovery.
-                if window.app_handle().tray_by_id("zhiji-tray").is_some() {
-                    eprintln!("[zhiji-close] tray present, hiding window");
+                let tray_present = window.app_handle().tray_by_id("zhiji-tray").is_some();
+                if tray_present {
+                    trace_close(&trace_dir, "tray present, hiding window");
                     if let Err(error) = window.hide() {
                         eprintln!("收起到托盘失败，尝试最小化：{error}");
                         let _ = window.minimize();
                     }
                 } else {
-                    eprintln!("[zhiji-close] tray missing, minimizing instead");
+                    trace_close(&trace_dir, "tray missing, minimizing instead");
                     let _ = window.minimize();
                 }
             }

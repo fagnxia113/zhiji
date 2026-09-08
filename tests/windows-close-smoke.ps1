@@ -44,7 +44,8 @@ try {
         Start-Sleep -Milliseconds 300
         $taskApp.Refresh()
         if ($taskApp.HasExited) { throw "Closing the window terminated the app: $($taskApp.ExitCode)" }
-    } while ($taskApp.MainWindowHandle -ne [IntPtr]::Zero -and (Get-Date) -lt $taskDeadline)    if ($taskApp.MainWindowHandle -ne [IntPtr]::Zero) { throw 'Main window remained visible after the close request.' }
+    } while ($taskApp.MainWindowHandle -ne [IntPtr]::Zero -and (Get-Date) -lt $taskDeadline)
+    if ($taskApp.MainWindowHandle -ne [IntPtr]::Zero) { throw 'Main window remained visible after the close request.' }
     Start-Sleep -Seconds 3
     $taskApp.Refresh()
     if ($taskApp.HasExited) { throw "App exited after hiding: $($taskApp.ExitCode)" }
@@ -56,5 +57,14 @@ try {
     Get-ChildItem -LiteralPath $taskLogs -File | ForEach-Object {
         Write-Output "Diagnostics: $($_.Name) ($($_.Length) bytes)"
         Get-Content -LiteralPath $_.FullName -ErrorAction SilentlyContinue
+    }
+    # The Rust close-trace file lives next to the installed exe (GUI subsystem
+    # stderr does not reach the redirected log files on the runner).
+    $traceLog = Join-Path $taskInstallDir 'zhiji-close-trace.log'
+    if (Test-Path -LiteralPath $traceLog) {
+        Write-Output "Diagnostics: zhiji-close-trace.log"
+        Get-Content -LiteralPath $traceLog -ErrorAction SilentlyContinue
+    } else {
+        Write-Output "Diagnostics: zhiji-close-trace.log MISSING (no close-trace file written)"
     }
 }
