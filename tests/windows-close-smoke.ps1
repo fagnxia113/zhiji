@@ -1,6 +1,9 @@
 param([Parameter(Mandatory = $true)][string] $Installer)
 $ErrorActionPreference = 'Stop'
 if ($env:GITHUB_ACTIONS -ne 'true') { throw 'This test runs only in the isolated GitHub Actions runner.' }
+# The app only writes its close-trace log when this is set, so the frontend
+# readiness gate below has something to read without polluting normal installs.
+$env:ZHIJI_CLOSE_TRACE = '1'
 
 function Show-ZhijiProcesses {
     param([string] $Label)
@@ -27,6 +30,32 @@ function Show-WebView2Runtime {
     }
     $webviewProcs = @(Get-Process -Name msedgewebview2 -ErrorAction SilentlyContinue)
     Write-Output "Diagnostics: msedgewebview2 process count = $($webviewProcs.Count)"
+}
+
+# Process.MainWindowHandle memoises the first handle it resolves and Refresh()
+# does not clear that cache, so it keeps reporting the pre-close handle even
+# after the app hides the window. Ask Win32 directly instead.
+$script:ZhijiUser32 = $null
+try {
+    $script:ZhijiUser32 = Add-Type -Namespace ZhijiSmoke -Name User32 -PassThru -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool IsWindowVisible(System.IntPtr hWnd);
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool IsWindow(System.IntPtr hWnd);
+'@
+} catch {
+    Write-Output "Diagnostics: user32 P/Invoke unavailable ($_); falling back to Process.MainWindowHandle"
+}
+
+function Test-ZhijiWindowVisible {
+    param([IntPtr] $Handle, [int] $ProcessId)
+    if ($script:ZhijiUser32) { return $script:ZhijiUser32::IsWindowVisible($Handle) }
+    $fresh = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    return [bool]($fresh -and $fresh.MainWindowHandle -ne [IntPtr]::Zero)
+}
+
+function Test-ZhijiWindowExists {
+    param([IntPtr] $Handle)
+    if ($script:ZhijiUser32) { return $script:ZhijiUser32::IsWindow($Handle) }
+    return $true
 }
 
 function Show-TraceLogs {
@@ -112,16 +141,30 @@ try {
     $taskApp.Refresh()
     if ($taskApp.HasExited) { throw "App exited before the close test: $($taskApp.ExitCode)" }
     Show-ZhijiProcesses -Label 'before close'
-    Write-Output "Closing actual workbench: PID $($taskApp.Id), HWND $($taskApp.MainWindowHandle)"
+    # Capture the native handle once: Process.MainWindowHandle memoises the first
+    # value it resolves and Refresh() does not clear it, so it keeps reporting the
+    # pre-close handle even after the app hides the window.
+    $taskHwnd = $taskApp.MainWindowHandle
+    Write-Output "Closing actual workbench: PID $($taskApp.Id), HWND $taskHwnd"
     if (-not $taskApp.CloseMainWindow()) { throw 'Windows could not send the close request.' }
+    $taskHidden = $false
     $taskDeadline = (Get-Date).AddSeconds(15)
     do {
         Start-Sleep -Milliseconds 300
         $taskApp.Refresh()
         if ($taskApp.HasExited) { throw "Closing the window terminated the app: $($taskApp.ExitCode)" }
-    } while ($taskApp.MainWindowHandle -ne [IntPtr]::Zero -and (Get-Date) -lt $taskDeadline)
-    if ($taskApp.MainWindowHandle -ne [IntPtr]::Zero) { throw 'Main window remained visible after the close request.' }
-    Write-Output "Window hidden; observing background survival for 3s (handle=$($taskApp.MainWindowHandle))"
+        $taskHidden = -not (Test-ZhijiWindowVisible -Handle $taskHwnd -ProcessId $taskApp.Id)
+    } while (-not $taskHidden -and (Get-Date) -lt $taskDeadline)
+    if (-not $taskHidden) {
+        Write-Output "Diagnostics: stale Process.MainWindowHandle = $($taskApp.MainWindowHandle)"
+        throw "Main window remained visible after the close request (HWND $taskHwnd)."
+    }
+    # Hidden is not the same as destroyed: the window must still exist so it can
+    # be restored from the tray or with the global shortcut.
+    if (-not (Test-ZhijiWindowExists -Handle $taskHwnd)) {
+        throw "Main window was destroyed instead of hidden (HWND $taskHwnd)."
+    }
+    Write-Output "Window hidden (HWND $taskHwnd still alive); observing background survival for 3s"
     Start-Sleep -Seconds 3
     $taskApp.Refresh()
     if ($taskApp.HasExited) { throw "App exited after hiding: $($taskApp.ExitCode)" }

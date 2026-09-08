@@ -3278,6 +3278,11 @@ fn finish_app_exit(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
 /// GUI 子系统的 stderr 不进入重定向文件，必须落盘才能在 runner 上看到。
 /// 文件名带 pid，用来区分多个实例（例如安装包结束后自动拉起的那一个）。
 fn trace_close(dir: &std::path::Path, message: &str) {
+    // Opt-in only: the CI smoke test sets ZHIJI_CLOSE_TRACE so it can read the
+    // close path back; normal launches must not leave logs next to the exe.
+    if std::env::var("ZHIJI_CLOSE_TRACE").is_err() {
+        return;
+    }
     use std::io::Write;
     let path = dir.join(format!("zhiji-close-trace-{}.log", std::process::id()));
     if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
@@ -3368,7 +3373,9 @@ pub fn run() {
             } else {
                 trace_close(&trace_dir, &format!("setup_tray ok (icon available: {})", app.default_window_icon().is_some()));
             }
-            spawn_trace_heartbeat(app.handle().clone());
+            if std::env::var("ZHIJI_CLOSE_TRACE").is_ok() {
+                spawn_trace_heartbeat(app.handle().clone());
+            }
             trace_close(
                 &trace_dir,
                 &format!(
