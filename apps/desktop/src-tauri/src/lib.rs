@@ -1486,14 +1486,15 @@ fn install_python_packages(
     stage: &str,
     wheels: Option<&Path>,
 ) -> Result<(), String> {
+    // wheel 字符串必须先于 arguments 声明：arguments 存的是 &str，不能借用块内才创建的 String。
+    let wheel_string = wheels.map(|wheels| wheels.to_string_lossy().into_owned());
     let mut arguments = vec![
         "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "--no-warn-script-location", "--prefer-binary",
         "--retries", "12", "--resume-retries", "12", "--timeout", "90", "--index-url", index,
     ];
     if let Some(extra_index) = extra_index { arguments.extend_from_slice(&["--extra-index-url", extra_index]); }
-    if let Some(wheels) = wheels {
-        let wheel_arg = wheels.to_string_lossy().into_owned();
-        arguments.extend_from_slice(&["--find-links", &wheel_arg]);
+    if let Some(wheel_arg) = wheel_string.as_deref() {
+        arguments.extend_from_slice(&["--find-links", wheel_arg]);
     }
     if force_reinstall { arguments.push("--force-reinstall"); }
     arguments.extend_from_slice(packages);
