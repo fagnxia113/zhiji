@@ -48,9 +48,23 @@ def clean_hotwords(text):
     return " ".join(token for token in str(text).split() if "<" not in token and ">" not in token)
 
 
+def model_weights_present(directory):
+    # 权重缺失时 FunASR 只打一行日志就带着随机初始化权重继续跑，整场输出乱码（v2.0.5 实测踩坑）。
+    # 下载中断残留的 .incomplete/.part 也一律视为不可用，逼上层重新下载。
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return False
+    if any(name.endswith(".incomplete") or name.endswith(".part") for name in names):
+        return False
+    return os.path.isfile(os.path.join(directory, "model.pt")) or os.path.isfile(
+        os.path.join(directory, "campplus_cn_common.bin")
+    )
+
+
 def find_cached_model(model_cache, preferred_name, model_class):
     preferred = os.path.join(model_cache, preferred_name)
-    if os.path.isfile(os.path.join(preferred, "config.yaml")):
+    if os.path.isfile(os.path.join(preferred, "config.yaml")) and model_weights_present(preferred):
         return preferred
 
     models_root = os.path.join(model_cache, "models")
@@ -58,6 +72,8 @@ def find_cached_model(model_cache, preferred_name, model_class):
         return None
     for root, _, files in os.walk(models_root):
         if "config.yaml" not in files:
+            continue
+        if not model_weights_present(root):
             continue
         config_path = os.path.join(root, "config.yaml")
         try:
@@ -119,7 +135,7 @@ def main():
     else:
         quality_dir = find_cached_model(args.model_cache, "quality-seaco", "SeacoParaformer")
 
-    if not os.path.isfile(os.path.join(online_dir, "config.yaml")):
+    if not os.path.isfile(os.path.join(online_dir, "config.yaml")) or not model_weights_present(online_dir):
         raise RuntimeError("本地实时模型不完整，请在设置中点击“检查并修复实时引擎”")
 
     from funasr import AutoModel

@@ -1250,18 +1250,32 @@ pub(crate) fn speaker_models_ready(models_dir: &Path) -> bool {
     fs::read_to_string(speaker_models_marker(models_dir))
         .is_ok_and(|version| version.trim() == SPEAKER_MODELS_VERSION)
         && quality_models_available(models_dir)
-        && models_dir.join("realtime-online").join("config.yaml").is_file()
+        && model_config_available(&models_dir.join("realtime-online"), "ParaformerStreaming", 1)
 }
 
 fn model_config_available(directory: &Path, model: &str, depth: u8) -> bool {
+    model_config_available_ex(directory, model, depth, true)
+}
+
+// 权重缺失时 FunASR 只打一行日志就用随机初始化继续跑，输出整场乱码（v2.0.5 踩坑）。
+// 因此“模型可用”必须同时验证权重文件存在，且目录里不能残留下载中断的 .incomplete。
+fn model_config_available_ex(directory: &Path, model: &str, depth: u8, require_weights: bool) -> bool {
     if depth == 0 || !directory.is_dir() { return false; }
     if fs::read_to_string(directory.join("config.yaml"))
         .is_ok_and(|config| config.lines().any(|line| line.trim() == format!("model: {model}")))
     {
-        return true;
+        if !require_weights { return true; }
+        let has_weights = directory.join("model.pt").is_file()
+            || directory.join("campplus_cn_common.bin").is_file();
+        let has_incomplete = directory.read_dir().ok().is_some_and(|entries| {
+            entries.flatten().any(|entry| {
+                entry.file_name().to_string_lossy().ends_with(".incomplete") || entry.file_name().to_string_lossy().ends_with(".part")
+            })
+        });
+        return has_weights && !has_incomplete;
     }
     fs::read_dir(directory).ok().is_some_and(|entries| {
-        entries.flatten().any(|entry| model_config_available(&entry.path(), model, depth - 1))
+        entries.flatten().any(|entry| model_config_available_ex(&entry.path(), model, depth - 1, require_weights))
     })
 }
 
