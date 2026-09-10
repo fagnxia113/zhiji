@@ -1719,6 +1719,8 @@ fn meeting_hotwords(context: &str, manual: &str) -> String {
         for value in source.split(separators) {
             let word = value.trim();
             let length = word.chars().count();
+            // `<s>`、`</s>`、`<|zh|>` 等是转写模型的特殊符号；混进热词会带偏 SeACo 解码，整句输出乱码。
+            if word.contains('<') || word.contains('>') { continue; }
             let looks_like_context_term = explicit
                 || length <= 12
                 || !word.chars().any(|ch| matches!(ch, '的' | '了' | '是' | '在' | '将' | '与' | '和'));

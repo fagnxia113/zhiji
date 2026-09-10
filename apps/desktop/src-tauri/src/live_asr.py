@@ -38,8 +38,14 @@ def text_of(result):
         return ""
     text = str(payload.get("text") or payload.get("value") or "")
     text = re.sub(r"<\|[^>]*\|>", "", text)
+    text = re.sub(r"</?s>", "", text)
     text = re.sub(r"(?<=[\u3400-\u9fff])\s+(?=[\u3400-\u9fff])", "", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def clean_hotwords(text):
+    # 热词里混入 `<s>`、`</s>`、`<|zh|>` 等特殊符号会带偏 SeACo 热词偏置，导致整句解码乱码。
+    return " ".join(token for token in str(text).split() if "<" not in token and ">" not in token)
 
 
 def find_cached_model(model_cache, preferred_name, model_class):
@@ -437,7 +443,7 @@ def main():
                     committed.clear()
                 continue
             if message_type == "configure":
-                session["hotwords"] = str(message.get("hotwords") or "").strip()
+                session["hotwords"] = clean_hotwords(message.get("hotwords") or "")
                 emit({"type": "configured", "hotwordCount": len(session["hotwords"].split())})
                 continue
             if message_type == "finish":
