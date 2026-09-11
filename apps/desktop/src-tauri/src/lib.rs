@@ -1668,6 +1668,35 @@ fn run_source_transcript(
     Ok(result.segments)
 }
 
+// 16kHz 单声道 s16le WAV 的静音检测：system 轨全静音说明这是一场线下现场会议
+// （说话人都在房间里、麦克风收全场），而不是线上会议（对方声音从电脑播放）。
+// 现场会议必须对麦克风轨做完整声纹聚类，否则全场所有人都会被标成“我”。
+fn wav_track_is_silent(path: &Path) -> bool {
+    let Ok(mut file) = fs::File::open(path) else { return true; };
+    // WAV 头 44 字节（RIFF/fmt/data），跳过后按 s16le 采样扫描能量。
+    use std::io::Read;
+    let mut header = [0u8; 44];
+    if file.read_exact(&mut header).is_err() { return true; }
+    let mut chunk = [0u8; 32000]; // 1 秒音频
+    let mut windows = 0usize;
+    let mut active_windows = 0usize;
+    while let Ok(read) = file.read(&mut chunk) {
+        if read == 0 { break; }
+        let samples = read / 2;
+        let mut sum_squares = 0u64;
+        for pair in chunk[..samples * 2].chunks_exact(2) {
+            let value = i16::from_le_bytes([pair[0], pair[1]]) as i32;
+            sum_squares += (value * value) as u64;
+        }
+        windows += 1;
+        if samples > 0 && (sum_squares / samples as u64) > 100u64.pow(2) {
+            active_windows += 1;
+        }
+        if read < chunk.len() { break; }
+    }
+    windows > 0 && active_windows == 0
+}
+
 fn run_dual_track_speaker_engine(
     engine_dir: PathBuf,
     models_dir: PathBuf,
@@ -1682,22 +1711,28 @@ fn run_dual_track_speaker_engine(
 ) -> Result<SpeakerTranscript, String> {
     let mut segments = Vec::new();
     let mut failures = Vec::new();
-    match run_source_transcript(
-        engine_dir.clone(),
-        models_dir.clone(),
-        runtime_dir.clone(),
-        ffmpeg_dir.clone(),
-        vcrt_dir.clone(),
-        system,
-        hotwords.clone(),
-        None,
-        cancel_flag.clone(),
-        cancel_child.clone(),
-    ) {
-        Ok(source_segments) => segments.extend(source_segments),
-        Err(error) if error.contains("已取消") => return Err(error),
-        Err(error) => failures.push(format!("会议声音：{error}")),
+    // 现场会议（system 轨全静音）：跳过空轨转写（纯静音跑识别只会白等几分钟再报错），
+    // 麦克风轨改走完整声纹聚类，还原“好几个人讲话”的真实说话人。
+    let in_room_meeting = wav_track_is_silent(&system);
+    if !in_room_meeting {
+        match run_source_transcript(
+            engine_dir.clone(),
+            models_dir.clone(),
+            runtime_dir.clone(),
+            ffmpeg_dir.clone(),
+            vcrt_dir.clone(),
+            system,
+            hotwords.clone(),
+            None,
+            cancel_flag.clone(),
+            cancel_child.clone(),
+        ) {
+            Ok(source_segments) => segments.extend(source_segments),
+            Err(error) if error.contains("已取消") => return Err(error),
+            Err(error) => failures.push(format!("会议声音：{error}")),
+        }
     }
+    let microphone_speaker: Option<(&str, i64)> = if in_room_meeting { None } else { Some(("我", 0)) };
     match run_source_transcript(
         engine_dir,
         models_dir,
@@ -1706,7 +1741,7 @@ fn run_dual_track_speaker_engine(
         vcrt_dir,
         microphone,
         hotwords,
-        Some(("我", 0)),
+        microphone_speaker,
         cancel_flag,
         cancel_child,
     ) {
@@ -1716,6 +1751,20 @@ fn run_dual_track_speaker_engine(
     }
     if segments.is_empty() {
         return Err(format!("双轨会议转写没有返回可用结果（{}）", failures.join("；")));
+    }
+    // 现场会议聚类只出一个人（独处口述）时，把唯一的说话人保留为“我”，避免“发言人 1”的冰冷标签。
+    if in_room_meeting {
+        let unique_speakers: Vec<i64> = {
+            let mut ids: Vec<i64> = segments.iter().map(|segment| segment.speaker_id).collect();
+            ids.sort();
+            ids.dedup();
+            ids
+        };
+        if unique_speakers.len() == 1 {
+            for segment in &mut segments {
+                segment.speaker = "我".to_string();
+            }
+        }
     }
     segments.sort_by_key(|segment| (segment.start_ms, segment.speaker_id));
     let transcript = segments.iter()
