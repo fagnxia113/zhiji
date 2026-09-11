@@ -1673,15 +1673,37 @@ fn run_source_transcript(
 // 现场会议必须对麦克风轨做完整声纹聚类，否则全场所有人都会被标成“我”。
 fn wav_track_is_silent(path: &Path) -> bool {
     let Ok(mut file) = fs::File::open(path) else { return true; };
-    // WAV 头 44 字节（RIFF/fmt/data），跳过后按 s16le 采样扫描能量。
+    // 正确解析 RIFF chunk 链定位 data 块：ffmpeg 从 raw 输入转 WAV 会写 LIST INFO
+    // 元数据块（v2.0.7 曾假设头固定 44 字节，把 LIST 里的 ASCII 当音频扫出假活动窗，
+    // 导致现场会议检测永远失灵——见 2026-09-11 复盘）。
     use std::io::Read;
-    let mut header = [0u8; 44];
-    if file.read_exact(&mut header).is_err() { return true; }
+    let mut riff = [0u8; 12];
+    if file.read_exact(&mut riff).is_err() { return true; }
+    if &riff[0..4] != b"RIFF" || &riff[8..12] != b"WAVE" { return true; }
+    let mut data_offset: Option<u64> = None;
+    let mut header = [0u8; 8];
+    loop {
+        if file.read_exact(&mut header).is_err() { break; }
+        let chunk_id = [header[0], header[1], header[2], header[3]];
+        let chunk_size = u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as u64;
+        if &chunk_id == b"data" {
+            data_offset = Some(chunk_size);
+            break;
+        }
+        // 跳过非 data 块（含 2 字节对齐填充）
+        let skip = (chunk_size + (chunk_size & 1)) as i64;
+        if std::io::Seek::seek(&mut file, std::io::SeekFrom::Current(skip)).is_err() { break; }
+    }
+    let Some(data_size) = data_offset else { return true; };
     let mut chunk = [0u8; 32000]; // 1 秒音频
     let mut windows = 0usize;
     let mut active_windows = 0usize;
-    while let Ok(read) = file.read(&mut chunk) {
+    let mut remaining = data_size;
+    while remaining > 0 {
+        let want = chunk.len().min(remaining as usize);
+        let read = match file.read(&mut chunk[..want]) { Ok(0) => break, Ok(n) => n, Err(_) => break };
         if read == 0 { break; }
+        remaining -= read as u64;
         let samples = read / 2;
         let mut sum_squares = 0u64;
         for pair in chunk[..samples * 2].chunks_exact(2) {
@@ -1692,7 +1714,7 @@ fn wav_track_is_silent(path: &Path) -> bool {
         if samples > 0 && (sum_squares / samples as u64) > 100u64.pow(2) {
             active_windows += 1;
         }
-        if read < chunk.len() { break; }
+        if read < want { break; }
     }
     windows > 0 && active_windows == 0
 }
