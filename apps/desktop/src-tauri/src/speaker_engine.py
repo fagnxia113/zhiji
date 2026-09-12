@@ -147,7 +147,12 @@ def cluster_embeddings(embeddings):
     # Spectral clustering scales poorly with the square of meeting length. For a
     # long meeting, cluster an evenly sampled overview and map all windows to its
     # speaker centroids by cosine similarity.
-    sample_limit = 600
+    # 采样数必须保持在谱聚类能保留声纹结构的规模：远场会议的声纹区分度本就
+    # 偏低（同人窗间余弦仅 0.4~0.5），抽稀到 600 个样本会让谱聚类的本征间隙
+    # 判定失效、全场塌缩成一个人（2026-09-10 现场会议 2945 窗塌缩成 1 簇的
+    # 实测）。2000 个采样既能控制耗时（eigh 2000x2000 约数秒），又验证可
+    # 分出与全量谱聚类 96%+ 一致的多说话人。
+    sample_limit = 2000
     if embeddings.shape[0] <= sample_limit:
         return ClusterBackend()(embeddings).astype("int")
     import torch
