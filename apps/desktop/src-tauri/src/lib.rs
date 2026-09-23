@@ -3238,6 +3238,48 @@ const ANALYSIS_CHUNK_SYSTEM_PROMPT: &str = "你是严谨的中文会议纪要助
 /// 合并轮用的 system prompt：把各段纪要合成一份完整纪要并提炼整体主题；结构化字段由程序侧合并，本轮固定留空。
 const ANALYSIS_MERGE_SYSTEM_PROMPT: &str = "你是严谨的中文会议纪要助手。下面是同一场长会议按时间顺序切分的各段纪要片段，请把它们合并成一份连贯、无重复、结构完整的会议纪要。只依据片段内容整合，不要编造事实。只输出合法 JSON，不要 Markdown 代码围栏。\n\nJSON 格式要求（严格遵循类型）：\n- theme：字符串（整场会议的总结主题短语，4-12 个字，不要带日期和标点）\n- minutes：字符串（Markdown 格式的完整纪要：按时间顺序组织各段要点，删除重复的引导语和段落标题，保留各段结论与【来源 mm:ss】时间标注）\n- decisions：字符串（固定输出空字符串）\n- actionItems：数组（固定输出空数组 []）\n- sourceHighlights：数组（固定输出空数组 []）";
 
+/// 统一的一次聊天补全调用：带连接/总超时，并对网关的瞬时故障做有限次退避重试。
+///
+/// 背景（2026-09-23 实测）：用户的 OpenAI 兼容网关在连续发起长请求时，会间歇性返回
+/// 401「无效的令牌」——同一把密钥、同一进程内，前一秒成功、后一秒被拒，且几十秒后恢复正常。
+/// 长会议纪要要把同一场会议切成 3~7 段连续请求，只要有一段被拒，整场纪要就会失败，
+/// 因此这里对网络错误与 401/403/408/429/5xx 统一重试；模型名或地址写错（400/404）则不重试。
+fn chat_completion(settings: &AiSettings, api_key: &str, body: &serde_json::Value, service_label: &str) -> Result<serde_json::Value, String> {
+    let endpoint = format!("{}/chat/completions", settings.base_url.trim_end_matches('/'));
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(600))
+        .build()
+        .map_err(app_error)?;
+    let mut last_error = String::new();
+    // 试探到网关的 401 是成片出现的，退避窗口给足（累计约 40 秒）比多试几次更有效
+    for attempt in 0..5u32 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_secs(u64::from(attempt) * 4));
+        }
+        match client.post(endpoint.as_str()).bearer_auth(api_key).json(body).send() {
+            Ok(response) => {
+                let status = response.status();
+                let text = response.text().unwrap_or_default();
+                if status.is_success() {
+                    return serde_json::from_str::<serde_json::Value>(&text)
+                        .map_err(|error| format!("{service_label}返回的内容不是合法 JSON：{error}"));
+                }
+                let snippet: String = text.chars().take(300).collect();
+                last_error = format!("{service_label} 返回 {status}：{snippet}");
+                let code = status.as_u16();
+                if status.is_client_error() && !matches!(code, 401 | 403 | 408 | 429) {
+                    break;
+                }
+            }
+            Err(error) => {
+                last_error = app_error(error);
+            }
+        }
+    }
+    Err(last_error)
+}
+
 /// 调聊天补全接口并解析出 AnalysisResponse（theme + minutes + decisions + actionItems）
 fn request_analysis(settings: &AiSettings, api_key: &str, user_prompt: &str) -> Result<AnalysisResponse, String> {
     request_analysis_with(settings, api_key, ANALYSIS_SYSTEM_PROMPT, user_prompt)
@@ -3253,9 +3295,8 @@ fn request_analysis_with(settings: &AiSettings, api_key: &str, system_prompt: &s
         { "role": "user", "content": user_prompt }
       ]
     });
-    let endpoint = format!("{}/chat/completions", settings.base_url.trim_end_matches('/'));
-    let response: serde_json::Value = response_error(reqwest::blocking::Client::new().post(endpoint).bearer_auth(api_key).json(&body).send().map_err(app_error)?, "智能纪要服务")?.json().map_err(app_error)?;
-    let content = response.pointer("/choices/0/message/content").and_then(serde_json::Value::as_str).ok_or_else(|| "智能纪要服务没有返回可解析的内容".to_string())?;
+    let response = chat_completion(settings, api_key, &body, "智能纪要服务")?;
+    let content = response.pointer("/choices/0/message/content").and_then(serde_json::Value::as_str).ok_or_else(|| "智能纪要服务没有返回可解析的内容（可能是模型只输出了思考过程）".to_string())?;
     let cleaned = clean_json(content);
     serde_json::from_str(&cleaned).map_err(|error| {
         let preview: String = cleaned.chars().take(500).collect();
@@ -3287,9 +3328,8 @@ fn request_chat_text(settings: &AiSettings, api_key: &str, system_prompt: &str, 
         { "role": "user", "content": user_prompt }
       ]
     });
-    let endpoint = format!("{}/chat/completions", settings.base_url.trim_end_matches('/'));
-    let response: serde_json::Value = response_error(reqwest::blocking::Client::new().post(endpoint).bearer_auth(api_key).json(&body).send().map_err(app_error)?, service_label)?.json().map_err(app_error)?;
-    let content = response.pointer("/choices/0/message/content").and_then(serde_json::Value::as_str).ok_or_else(|| format!("{service_label}没有返回可解析的内容"))?;
+    let response = chat_completion(settings, api_key, &body, service_label)?;
+    let content = response.pointer("/choices/0/message/content").and_then(serde_json::Value::as_str).ok_or_else(|| format!("{service_label}没有返回可解析的内容（可能是模型只输出了思考过程）"))?;
     let answer = content.trim().to_string();
     if answer.is_empty() { return Err(format!("{service_label}没有返回内容")); }
     Ok(answer)

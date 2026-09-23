@@ -1071,6 +1071,21 @@ export function App() {
     }
   };
 
+  // 分区一键复制：原文、智能纪要等分别拷贝，避免只提供「整场复制」
+  const copyBlock = async (text: string, label: string) => {
+    const value = stripHtml(text).trim();
+    if (!value) {
+      notify(`${label}还没有内容可复制`);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+      notify(`${label}已复制到剪贴板`);
+    } catch (error) {
+      notify(`复制${label}失败：${String(error)}`);
+    }
+  };
+
   const revealRecording = async () => {
     if (!selectedMeeting) return;
     try {
@@ -2094,6 +2109,7 @@ export function App() {
             onImport={() => void importMeetingAudio()}
             onExport={() => void exportMeeting()}
             onCopy={() => void copyMeeting()}
+            onCopyText={(text, label) => void copyBlock(text, label)}
             onRevealRecording={() => void revealRecording()}
             onTask={(title, due) => addTask(title, due, "meeting", selectedMeeting?.id ?? null)}
             onToggleTask={(task) => void toggleTask(task)}
@@ -2441,6 +2457,7 @@ function Meetings({
   onImport,
   onExport,
   onCopy,
+  onCopyText,
   onRevealRecording,
   onTask,
   onToggleTask,
@@ -2480,6 +2497,7 @@ function Meetings({
   onImport: () => void;
   onExport: () => void;
   onCopy: () => void;
+  onCopyText: (text: string, label: string) => void;
   onRevealRecording: () => void;
   onTask: (title: string, due: string | null) => Promise<boolean>;
   onToggleTask: (task: Task) => void;
@@ -2605,7 +2623,16 @@ function Meetings({
           <small>{speakerSegments.length > 0 ? "边听边改每个片段，修改会同步到完整原文" : "可以直接修正识别文字"}</small>
         </div>
         {meeting.transcript.trim() && (
-          <span className="count-pill">约 {meeting.transcript.trim().length} 字</span>
+          <div className="pane-actions">
+            <button
+              className="pane-action secondary"
+              onClick={() => onCopyText(meeting.transcript, "原文")}
+              title="复制完整原文到剪贴板"
+            >
+              <Copy size={14} />复制原文
+            </button>
+            <span className="count-pill">约 {meeting.transcript.trim().length} 字</span>
+          </div>
         )}
       </div>
       {meeting.transcript.trim() && (
@@ -2663,6 +2690,15 @@ function Meetings({
           <small>先校对原文和说话人，再生成最终纪要</small>
         </div>
         <div className="pane-actions">
+          {meeting.minutes.trim() && (
+            <button
+              className="pane-action secondary"
+              onClick={() => onCopyText(stripHtml(meeting.minutes), "智能纪要")}
+              title="复制智能纪要全文到剪贴板"
+            >
+              <Copy size={14} />复制纪要
+            </button>
+          )}
           {meeting.minutes.trim() && (
             <button
               className="pane-action secondary"
