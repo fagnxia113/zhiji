@@ -34,6 +34,7 @@ tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
+tiny_http = "0.12"
 wasapi = "0.23"
 
 [target.'cfg(windows)'.dependencies]

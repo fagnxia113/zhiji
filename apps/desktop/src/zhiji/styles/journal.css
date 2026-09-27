@@ -1,0 +1,59 @@
+.work-journal { max-width: 1120px; margin-inline: auto; width: 100%; min-width: 0; }
+.work-journal.compact { grid-column: 1 / -1; max-width: none; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 24px; }
+.journal-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 20px; }
+.journal-heading h2, .local-access h2 { font-size: 21px; margin: 7px 0; display: flex; align-items: center; gap: 10px; }
+.journal-heading p, .local-access p { color: var(--text-muted); font-size: 12px; line-height: 1.8; margin: 6px 0; }
+.journal-eyebrow { font-size: 11px; color: var(--accent-text); letter-spacing: .06em; }
+.work-capture { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 10px; padding: 16px; }
+.work-capture:focus-within { border-color: var(--accent); }
+.work-capture textarea { width: 100%; resize: vertical; border: 0; outline: none; background: transparent; color: var(--text-strong); font: inherit; font-size: 14px; line-height: 1.8; min-height: 66px; }
+.capture-fields { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; margin-top: 12px; }
+.capture-fields select, .capture-fields input:not([type=checkbox]), .journal-toolbar input, .journal-toolbar select, .project-create input, .project-material-row select, .weekly-controls select, .report-history select { border: 1px solid var(--border-subtle); border-radius: 6px; padding: 8px 10px; background: var(--bg-subtle); color: var(--text-default); font: inherit; font-size: 12px; max-width: 100%; min-width: 0; }
+.capture-fields select { max-width: 200px; }
+.capture-hint { display: flex; align-items: center; gap: 6px; margin-top: 12px; color: var(--text-muted); font-size: 11px; line-height: 1.7; }
+.journal-toolbar, .project-create { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 18px 0; }
+.journal-toolbar input { flex: 1; min-width: 150px; }
+.journal-toolbar .selected { background: var(--accent-subtle); color: var(--accent-text); }
+.project-create { padding: 14px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 9px; }
+.work-entry-list { display: grid; gap: 10px; margin-top: 20px; }
+.work-entry { border: 1px solid var(--border-subtle); border-radius: 9px; padding: 16px 18px; background: var(--bg-surface); min-width: 0; }
+.work-entry-meta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 11px; color: var(--text-muted); }
+.work-entry p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.9; margin: 12px 0; }
+.work-entry footer { display: flex; align-items: center; justify-content: space-between; color: var(--text-muted); }
+.work-entry footer small { font-size: 11px; }
+.work-status { padding: 3px 7px; border-radius: 4px; background: var(--bg-subtle); }
+.work-status.done { background: var(--accent-subtle); color: var(--accent-text); }
+.work-status.waiting { color: #a26714; background: #fff3d9; }
+[data-theme=dark] .work-status.waiting { color: #f4c76e; background: #453720; }
+.journal-empty { padding: 18px 0; color: var(--text-muted); font-size: 12px; line-height: 1.8; }
+.project-materials, .report-sources { border: 1px solid var(--border-subtle); border-radius: 8px; padding: 14px; margin: 16px 0; font-size: 12px; color: var(--text-muted); }
+.project-materials summary, .report-sources summary { cursor: pointer; color: var(--text-strong); line-height: 1.7; }
+.project-material-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); }
+.project-material-row > :first-child { min-width: 0; overflow-wrap: anywhere; text-align: left; }
+.project-material-row select { flex-shrink: 0; width: 170px; }
+.report-workspace { width: min(980px, calc(100vw - 28px)); max-width: 980px; overflow-y: auto; background: var(--bg-surface); }
+.report-workspace .weekly-controls { flex-wrap: wrap; gap: 12px; align-items: end; }
+.report-workspace .weekly-controls label { display: grid; gap: 6px; font-size: 12px; }
+.report-privacy, .source-warning { font-size: 11px; color: var(--text-muted); line-height: 1.8; }
+.report-sources details { margin-top: 10px; }
+.report-sources pre, .local-access pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; line-height: 1.8; background: var(--bg-subtle); padding: 12px; border-radius: 6px; }
+.report-editor { width: 100%; min-height: 310px; resize: vertical; border: 1px solid var(--border-default); border-radius: 8px; padding: 16px; background: var(--bg-surface); color: var(--text-strong); font: inherit; font-size: 13px; line-height: 1.9; }
+.report-history { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 12px; align-items: center; font-size: 12px; margin: 16px 0; }
+.report-workspace .weekly-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0; }
+.weekly-actions > span { font-size: 11px; color: var(--text-muted); margin-right: auto; }
+.access-card { border: 1px solid var(--border-subtle); border-radius: 10px; padding: 22px; margin: 18px 0; background: var(--bg-surface); }
+.access-card h3 { font-size: 15px; margin: 0 0 12px; }
+.access-card > button { margin-top: 12px; }
+.access-card label { display: grid; gap: 8px; font-size: 12px; color: var(--text-muted); }
+.access-card .capture-permission { display: flex; align-items: center; }
+@media(max-width:600px) {
+  .work-journal.compact { padding: 16px; }
+  .journal-heading { align-items: start; flex-wrap: wrap; }
+  .capture-fields > * { flex: 1 1 120px; }
+  .capture-fields select { max-width: 100%; }
+  .project-material-row { flex-wrap: wrap; }
+  .project-material-row select { width: 100%; }
+  .report-workspace { padding: 16px; }
+  .report-history { grid-template-columns: 1fr; }
+  .access-card { padding: 16px; }
+}

@@ -68,6 +68,7 @@ import {
 } from "./theme";
 import { SettingsView } from "./SettingsView";
 import { WorkbenchOverview } from "./components/WorkbenchOverview";
+import { WorkJournal } from "./components/WorkJournal";
 import type { TaskFilter } from "./components/tasks/Tasks";
 import {
   AiWorkflow,
@@ -1936,6 +1937,7 @@ export function App() {
           <span>新建</span>
         </button>
         <nav className="rail-nav">
+          <RailItem active={view === "journal"} icon={<Pencil size={20} />} title="工作记录" onClick={() => setView("journal")} />
           <RailItem
             active={view === "home"}
             icon={<House size={20} />}
@@ -2095,6 +2097,7 @@ export function App() {
             transcriptionReady={asrEngine.provider === "cloud" ? asrEngine.cloudKeySaved : (asrStatus.installed && asrStatus.runtimeAvailable) || (speakerStatus.installed && speakerStatus.modelsReady)}
             onSettings={() => setView("settings")}
             onReport={() => setWeeklyReportOpen(true)}
+            onJournal={() => setView("journal")}
           />
         )}
         {view === "meetings" && (
@@ -2140,6 +2143,7 @@ export function App() {
             onWeeklyReport={() => setWeeklyReportOpen(true)}
           />
         )}
+        {view === "journal" && <WorkJournal workspace={workspace} onMeeting={id => { const m = workspace.meetings.find(m => m.id === id); if (m) { void selectMeeting(m); setView("meetings"); } }} />}
         {view === "tasks" && (
           <Tasks
             key={taskFilter}
@@ -2312,7 +2316,7 @@ function Home({
   onOpenPalette,
   onOpenTasks,
   onOpenMeetings,
-  aiReady, transcriptionReady, onSettings, onReport,
+  aiReady, transcriptionReady, onSettings, onReport, onJournal,
 }: {
   workspace: Workspace;
   onMeeting: () => void;
@@ -2325,6 +2329,7 @@ function Home({
   transcriptionReady: boolean;
   onSettings: () => void;
   onReport: () => void;
+  onJournal: () => void;
 }) {
   const openTasks = workspace.tasks.filter((task) => !task.completed);
   const overdue = openTasks.filter((task) => taskDueState(task) === "overdue");
@@ -2361,6 +2366,7 @@ function Home({
       </section>
 
       <WorkbenchOverview workspace={workspace} aiReady={aiReady} transcriptionReady={transcriptionReady} onMeetings={onOpenMeetings} onTasks={() => onOpenTasks()} onSettings={onSettings} onReport={onReport} />
+      <WorkJournal workspace={workspace} compact onOpen={onJournal} />
 
       {continueMeeting && (
         <section className="continue-meeting-card">
@@ -3012,5 +3018,6 @@ const pageCopy: Record<View, { title: string; subtitle: string }> = {
   home: { title: "工作台", subtitle: "把讨论、行动与每周成果，放在一处" },
   meetings: { title: "会议", subtitle: "录音、原文、纪要与行动项" },
   tasks: { title: "待办", subtitle: "集中跟进每场会议产生的行动项" },
+  journal: { title: "工作记录", subtitle: "会内与会外的进展，汇成项目的完整脉络" },
   settings: { title: "设置", subtitle: "录音、转写、智能纪要与数据保护" },
 };

@@ -41,6 +41,62 @@ fn text_value(connection: &Connection, sql: &str) -> String {
 }
 
 #[test]
+fn work_capture_is_idempotent_and_validates_dates_and_projects() {
+    let directory = TestDirectory::new();
+    let db = sample_database(&directory.0.join("capture.sqlite3"));
+    let entry = json!({"id":"external-1","content":"报价已提交，等待客户确认","occurredOn":"2026-09-22","status":"waiting"});
+    let first = workbench::save_entry(&db, &entry, true).unwrap();
+    assert_eq!(workbench::save_entry(&db, &entry, true).unwrap(), first);
+    let mut conflict = entry.clone();
+    conflict["content"] = json!("different");
+    assert!(workbench::save_entry(&db, &conflict, true).is_err());
+    assert!(workbench::save_entry(&db, &json!({"id":"bad","content":"x","occurredOn":"2026-02-30"}), true).is_err());
+    assert!(workbench::save_entry(&db, &json!({"id":"bad","content":"x","occurredOn":"2026-09-22","projectId":"missing"}), true).is_err());
+    assert_eq!(db.query_row("SELECT count(*) FROM work_entries", [], |r| r.get::<_,i64>(0)).unwrap(), 1);
+}
+
+#[test]
+fn report_uses_actual_completion_date_and_project_inheritance() {
+    let directory = TestDirectory::new();
+    let db = sample_database(&directory.0.join("report.sqlite3"));
+    workbench::dispatch_db(&db,"save_project",&json!({"id":"project","name":"客户项目"})).unwrap();
+    workbench::dispatch_db(&db,"link_project",&json!({"entityType":"meeting","entityId":"meeting","projectId":"project"})).unwrap();
+    db.execute("UPDATE tasks SET completed=1 WHERE id='task'",[]).unwrap();
+    db.execute("UPDATE task_activity SET completed_at='2026-09-23T10:00:00+08:00' WHERE task_id='task'",[]).unwrap();
+    // A later title/owner edit must not move a completed task into a different report week.
+    db.execute("UPDATE tasks SET title='提交新版方案' WHERE id='task'",[]).unwrap();
+    assert_eq!(text_value(&db,"SELECT completed_at FROM task_activity WHERE task_id='task'"),"2026-09-23T10:00:00+08:00");
+    workbench::save_entry(&db,&json!({"id":"entry","content":"会外完成报价","occurredOn":"2026-09-22","projectId":"project","status":"done"}),true).unwrap();
+    workbench::save_entry(&db,&json!({"id":"other","content":"其他项目工作","occurredOn":"2026-09-22"}),true).unwrap();
+    let material=workbench::material(&db,"2026-09-21",Some("project")).unwrap();
+    assert_eq!(material.sources.len(),2);
+    assert!(material.sources.iter().any(|s|s.source_type=="task"&&s.id=="task"));
+    assert!(material.sources.iter().any(|s|s.source_type=="entry"&&s.id=="entry"));
+    assert!(workbench::material(&db,"2026-09-28",Some("project")).unwrap().sources.is_empty());
+    db.execute("UPDATE tasks SET completed=0 WHERE id='task'",[]).unwrap();
+    assert!(db.query_row("SELECT completed_at FROM task_activity WHERE task_id='task'",[],|r|r.get::<_,Option<String>>(0)).unwrap().is_none());
+}
+
+#[test]
+fn workbench_backup_and_export_preserve_entries_reports_and_source_snapshots() {
+    let directory=TestDirectory::new();
+    let mut db=sample_database(&directory.0.join("live.sqlite3"));
+    workbench::dispatch_db(&db,"save_project",&json!({"id":"project","name":"客户项目"})).unwrap();
+    workbench::save_entry(&db,&json!({"id":"entry","content":"原始工作记录","occurredOn":"2026-09-22","projectId":"project"}),true).unwrap();
+    db.execute("INSERT INTO weekly_reports VALUES('report','2026-09-21','project','已编辑周报','[]','[]','created','version-1')",[]).unwrap();
+    let snapshot=create_backup_snapshot(&db,&directory.0.join("backups")).unwrap();
+    db.execute("UPDATE work_entries SET content='修改后的记录'",[]).unwrap();
+    db.execute("DELETE FROM weekly_reports",[]).unwrap();
+    restore_database_backup(&mut db,&directory.0.join("backups"),&snapshot.file_name).unwrap();
+    assert_eq!(text_value(&db,"SELECT content FROM work_entries"),"原始工作记录");
+    assert_eq!(text_value(&db,"SELECT content FROM weekly_reports"),"已编辑周报");
+    assert!(workbench::dispatch_db(&db,"save_report",&json!({"id":"report","content":"conflict","updatedAt":"wrong"})).is_err());
+    assert_eq!(workbench::export(&db,&directory.0).unwrap(),2);
+    assert!(fs::read_to_string(directory.0.join("工作记录-2026-09-22-entry.md")).unwrap().contains("客户项目"));
+    assert!(fs::read_to_string(directory.0.join("周报-2026-09-21-report.md")).unwrap().contains("来源快照"));
+}
+
+#[test]
 fn backup_restores_meetings_tasks_notes_settings_and_question_history() {
     let directory = TestDirectory::new();
     let mut connection = sample_database(&directory.0.join("live.sqlite3"));

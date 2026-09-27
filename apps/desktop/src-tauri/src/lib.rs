@@ -10,6 +10,9 @@ use uuid::Uuid;
 
 mod recorder;
 mod live_session;
+mod workbench;
+mod local_api;
+pub use local_api::run_mcp_stdio;
 
 #[cfg(test)]
 mod storage_tests;
@@ -716,6 +719,7 @@ fn initialize_database(connection: &Connection) -> Result<(), Box<dyn Error>> {
     ensure_column(connection, "meetings", "notes", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(connection, "tasks", "origin", "TEXT NOT NULL DEFAULT 'manual'")?;
     ensure_column(connection, "tasks", "owner", "TEXT NOT NULL DEFAULT ''")?;
+    workbench::migrate(connection)?;
     clean_stored_transcripts(connection)?;
     Ok(())
 }
@@ -1910,7 +1914,8 @@ fn export_all_markdown(state: State<'_, AppState>, target_dir: String) -> Result
         fs::write(&target, markdown_export(meeting, &meeting_tasks)).map_err(|error| format!("导出会议失败：{error}"))?;
         exported += 1;
     }
-    Ok(format!("已导出 {exported} 场会议到 {}", dir.to_string_lossy()))
+    let work_count = workbench::export(&connection, &dir)?;
+    Ok(format!("已导出 {exported} 场会议、{work_count} 条工作记录与周报到 {}", dir.to_string_lossy()))
 }
 
 #[tauri::command]
@@ -1976,6 +1981,7 @@ fn restore_database_backup(connection: &mut Connection, backups_dir: &Path, file
             .map_err(app_error)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(app_error)?
     } else { Vec::new() };
+    let restored_workbench = workbench::snapshot(&source)?;
     drop(source);
     create_backup_snapshot(connection, backups_dir)?;
     let transaction = connection.transaction().map_err(app_error)?;
@@ -2018,6 +2024,7 @@ fn restore_database_backup(connection: &mut Connection, backups_dir: &Path, file
     for (key, value) in restored_settings {
         transaction.execute("INSERT INTO settings (key, value) VALUES (?1, ?2)", params![key, value]).map_err(app_error)?;
     }
+    workbench::restore(&transaction, restored_workbench)?;
     transaction.commit().map_err(app_error)?;
     Ok(Workspace { meetings: meetings(&connection)?, tasks: tasks(&connection)? })
 }
@@ -3412,7 +3419,6 @@ fn clear_qa_history(state: State<'_, AppState>, meeting_id: String) -> Result<()
     Ok(())
 }
 
-const WEEKLY_SYSTEM_PROMPT: &str = "你是严谨的中文工作周报助手。根据用户提供的本周会议材料汇总一份个人周报；只依据提供的内容，不要编造事实、数据或日期。输出 Markdown，结构固定为：## 本周概览（3-5 句总结）、## 重点工作进展（按主题分点）、## 关键决策、## 风险与阻塞、## 下周计划（依据各会议未完成的待办）。某节没有内容就写「本周无」。不要输出 Markdown 代码围栏。";
 
 /// 控制送给周报的会议材料长度：每场最多 2500 字，整体最多 16000 字，避免超长会议撑爆上下文
 fn clip_chars(text: &str, limit: usize) -> String {
@@ -3422,64 +3428,9 @@ fn clip_chars(text: &str, limit: usize) -> String {
 
 #[tauri::command]
 fn generate_weekly_report(state: State<'_, AppState>, week_start: String) -> Result<String, String> {
-    let start = chrono::NaiveDate::parse_from_str(week_start.trim(), "%Y-%m-%d").map_err(|_| "日期格式应为 YYYY-MM-DD".to_string())?;
-    let end = start + chrono::Duration::days(6);
-    let (settings, api_key) = configured_ai(&state)?;
-    let (mut week_meetings, week_tasks) = {
-        let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-        let start_key = start.format("%Y-%m-%d").to_string();
-        let end_key = end.format("%Y-%m-%d").to_string();
-        let in_range: Vec<Meeting> = meetings(&connection)?
-            .into_iter()
-            .filter(|meeting| {
-                let day = meeting.started_at.get(..10).unwrap_or("");
-                !day.is_empty() && day >= start_key.as_str() && day <= end_key.as_str()
-            })
-            .filter(|meeting| !meeting.minutes.trim().is_empty() || !meeting.transcript.trim().is_empty())
-            .collect();
-        let meeting_ids: std::collections::HashSet<String> = in_range.iter().map(|meeting| meeting.id.clone()).collect();
-        let open_tasks: Vec<Task> = tasks(&connection)?
-            .into_iter()
-            .filter(|task| !task.completed)
-            .filter(|task| task.source_type.as_deref() == Some("meeting") && task.source_id.as_ref().is_some_and(|source| meeting_ids.contains(source)))
-            .collect();
-        (in_range, open_tasks)
-    };
-    if week_meetings.is_empty() {
-        return Err(format!("{} 至 {} 这一周没有可用会议（需要有纪要或转写内容）", start.format("%Y-%m-%d"), end.format("%Y-%m-%d")));
-    }
-    week_meetings.sort_by(|a, b| a.started_at.cmp(&b.started_at));
-    let mut budget = 16_000usize;
-    let mut sections = Vec::new();
-    for meeting in &week_meetings {
-        let day = meeting.started_at.get(..10).unwrap_or("未知日期");
-        let material = if !meeting.minutes.trim().is_empty() {
-            format!("智能纪要：\n{}", meeting.minutes.trim())
-        } else {
-            format!("转写稿节选（尚未生成纪要）：\n{}", meeting_transcript_text(meeting))
-        };
-        let decisions_block = if meeting.decisions.trim().is_empty() { String::new() } else { format!("\n关键决策：\n{}", meeting.decisions.trim()) };
-        let per_meeting = clip_chars(&format!("{material}{decisions_block}"), 2_500.min(budget));
-        budget = budget.saturating_sub(per_meeting.chars().count());
-        sections.push(format!("### {}（{}）\n{}", meeting.title, day, per_meeting));
-        if budget == 0 { break; }
-    }
-    let tasks_block = if week_tasks.is_empty() {
-        String::new()
-    } else {
-        let items = week_tasks.iter()
-            .map(|task| match &task.due_date { Some(due) if !due.trim().is_empty() => format!("- {}（截止 {}）", task.title, due), _ => format!("- {}", task.title) })
-            .collect::<Vec<_>>()
-            .join("\n");
-        format!("\n\n本周会议未完成的待办：\n{items}")
-    };
-    let user_prompt = format!(
-        "本周范围：{} 至 {}，共 {} 场会议。\n\n{}\n{}",
-        start.format("%Y-%m-%d"), end.format("%Y-%m-%d"), week_meetings.len(), sections.join("\n\n"), tasks_block,
-    );
-    request_chat_text(&settings, &api_key, WEEKLY_SYSTEM_PROMPT, &user_prompt, "周报服务")
+    let report = workbench::generate(&state, &json!({"weekStart": week_start, "mode": "ai"}))?;
+    Ok(report["content"].as_str().unwrap_or_default().to_string())
 }
-
 #[tauri::command]
 fn preview_meeting_analysis(state: State<'_, AppState>, meeting_id: String, template: String) -> Result<AnalysisResponse, String> {
     generate_analysis(&state, &meeting_id, &template)
@@ -3859,7 +3810,8 @@ pub fn run() {
             transcribe_meeting_with_speakers, cancel_processing,
             preview_meeting_analysis, apply_meeting_analysis, analyze_meeting, regenerate_meeting_section,
             rename_meeting, delete_meeting, rename_speaker,
-            list_qa_messages, ask_meeting_question, clear_qa_history, generate_weekly_report
+            list_qa_messages, ask_meeting_question, clear_qa_history, generate_weekly_report,
+            workbench::workbench_call, local_api::local_api_status, local_api::start_local_api, local_api::stop_local_api
         ])
         .build(tauri::generate_context!())
         .expect("启动知记时发生错误")

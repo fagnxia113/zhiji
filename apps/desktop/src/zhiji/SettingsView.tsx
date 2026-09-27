@@ -36,6 +36,7 @@ import type {
   Workspace,
 } from "./types";
 import { OfflineInstallPanel } from "./components/settings/OfflineInstallPanel";
+import { LocalAccessPanel } from "./components/settings/LocalAccessPanel";
 import type { ThemePreference } from "./theme";
 
 const CLOUD_ASR_PRESETS = [
@@ -61,7 +62,9 @@ type SettingsSection =
   | "transcription"
   | "summary"
   | "data"
+  | "integrations"
   | "about";
+// Native local integrations share the workbench application services.
 
 interface DataLocationInfo {
   dataDir: string;
@@ -259,6 +262,7 @@ export function SettingsView({
     icon: typeof Settings2;
     state?: "ready" | "attention";
   }> = [
+    { id: "integrations", label: "本地 API / MCP", hint: "连接 AI 与自动化", icon: Settings2 },
     {
       id: "general",
       label: "使用概览",
@@ -333,6 +337,7 @@ export function SettingsView({
       </aside>
 
       <main className="settings-content">
+        {section === "integrations" && <LocalAccessPanel />}
         {section === "general" && (
           <>
             <SettingsHeading

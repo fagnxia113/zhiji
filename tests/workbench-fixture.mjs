@@ -16,6 +16,11 @@ export function installFixture({ failStartup = false, failSettings = false, empt
     { id: "t3", title: "安排下周项目复盘", sourceType: null, sourceId: null, completed: false, dueDate: date(3), createdAt: `${date()}T12:00:00+08:00`, owner: "" },
   ] };
   window.__fixture = { workspace, failStartup, failSettings, failTask: false, calls: [] };
+  const work = { projects: [], entries: [], links: {} };
+  const reports = [];
+  let access = { running: false };
+  window.__fixture.work = work;
+  window.__fixture.reports = reports;
   const callbacks = new Map(); const listeners = new Map(); let callbackId = 0;
   window.__fixture.emit = (event, payload = null) => {
     for (const [id, listener] of listeners) if (listener.event === event) callbacks.get(listener.handler)?.({ event, id, payload });
@@ -27,6 +32,31 @@ export function installFixture({ failStartup = false, failSettings = false, empt
     convertFileSrc: path => path,
     invoke: async (command, args = {}) => {
       window.__fixture.calls.push(command);
+      if (command === "local_api_status") return structuredClone(access);
+      if (command === "start_local_api") { access = { running: true, url: `http://127.0.0.1:${args.port}`, allowCapture: args.allowCapture, projectId: args.projectId, mcpConfig: { mcpServers: {} }, calls: [] }; return structuredClone(access); }
+      if (command === "stop_local_api") { access = { running: false }; return null; }
+      if (command === "workbench_call") {
+        const a = args.args;
+        const material = () => ({ weekStart: a.weekStart, weekEnd: a.weekStart, warnings: ["团队成果不自动视为个人成果"], sources: work.entries.filter(e => !a.projectId || e.projectId === a.projectId).map(e => ({ id: e.id, sourceType: "entry", title: e.content, date: e.occurredOn, projectId: e.projectId, content: `${e.content} · ${e.status}` })).concat(workspace.meetings.filter(m => !a.projectId || work.links[`meeting:${m.id}`] === a.projectId).map(m => ({ id: m.id, sourceType: "meeting", title: m.title, date: m.startedAt.slice(0, 10), projectId: null, content: m.minutes || m.transcript }))) });
+        if (args.action === "load") return structuredClone(work);
+        if (args.action === "save_entry") {
+          if (window.__fixture.failEntry) throw Error("测试：工作记录写入失败");
+          const entry = { ...a, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+          const i = work.entries.findIndex(e => e.id === entry.id); if (i < 0) work.entries.unshift(entry); else work.entries[i] = entry;
+          return structuredClone(entry);
+        }
+        if (args.action === "save_project") { const i = work.projects.findIndex(p => p.id === a.id); if (i < 0) work.projects.push(a); else work.projects[i] = a; return structuredClone(work.projects); }
+        if (args.action === "link_project") { if (a.projectId) work.links[`${a.entityType}:${a.entityId}`] = a.projectId; else delete work.links[`${a.entityType}:${a.entityId}`]; return structuredClone(work.links); }
+        if (args.action === "report_material") return material();
+        if (args.action === "list_reports") return structuredClone(reports);
+        if (args.action === "generate_report") {
+          if (window.__fixture.failReport) throw Error("测试：生成失败，已有周报保留");
+          const report = { id: crypto.randomUUID(), weekStart: a.weekStart, projectId: a.projectId, content: `# 工作周报\n\n${material().sources.map((s, i) => `${s.content} [${i + 1}]`).join("\n")}`, sources: material().sources, warnings: material().warnings, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+          reports.unshift(report); return structuredClone(report);
+        }
+        if (args.action === "save_report") { if (window.__fixture.failReport) throw Error("测试：周报保存失败"); const r = reports.find(r => r.id === a.id); r.content = a.content; r.updatedAt = new Date().toISOString(); return { updatedAt: r.updatedAt }; }
+        throw Error(`Unimplemented workbench action: ${args.action}`);
+      }
       if (command === "recover_interrupted_recordings") { if (window.__fixture.failStartup) throw Error("测试：资料库暂不可用"); return 0; }
       if (command === "load_workspace") return structuredClone(workspace);
       if (command === "get_ai_settings") { if (window.__fixture.failSettings) throw Error("测试：配置暂不可用"); return { baseUrl: "https://api.openai.com/v1", analysisModel: "gpt-4o-mini", isConfigured: true }; }
