@@ -67,7 +67,7 @@ export function SpeakerTimeline({
     <section className="speaker-timeline">
       <div className="speaker-timeline-head">
         <h3>说话人时间线</h3>
-        <small>点击片段可听原声；点击说话人名称可改名，右侧按钮可直接修正识别文字。</small>
+        <small>点击片段可听原声；点击说话人名称可改名，右侧按钮可直接修正识别文字。时间戳悬停或播放到该段时显现。</small>
         {items.length > 20 && (
           <label className="speaker-filter">
             <Search size={14} />
@@ -88,66 +88,69 @@ export function SpeakerTimeline({
           currentMs >= 0 && currentMs >= item.startMs && currentMs < item.endMs;
         return (
           <div className={`speaker-row ${active ? "active" : ""}`} key={`${item.startMs}-${index}`}>
-            <Popover
-              trigger={
-                <span className="speaker-chip" title="点击修改说话人名称">
-                  {label}
-                </span>
-              }
-            >
-              {(close) => (
-                <div className="speaker-rename">
-                  <input
-                    className="speaker-rename-input"
-                    defaultValue={label}
-                    placeholder="输入说话人名称"
-                    autoFocus
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        onRename(id, (event.target as HTMLInputElement).value);
-                        close();
-                      } else if (event.key === "Escape") {
-                        close();
-                      }
-                    }}
-                  />
-                  <div className="speaker-rename-actions">
-                    <button
-                      type="button"
-                      className="ghost-button"
-                      onClick={() => {
-                        onRename(id, "");
-                        close();
+            <div className="speaker-meta">
+              <Popover
+                trigger={
+                  <span className="speaker-chip" title="点击修改说话人名称">
+                    <i className="speaker-dot" data-speaker={((id % 6) + 6) % 6} aria-hidden="true" />
+                    {label}
+                  </span>
+                }
+              >
+                {(close) => (
+                  <div className="speaker-rename">
+                    <input
+                      className="speaker-rename-input"
+                      defaultValue={label}
+                      placeholder="输入说话人名称"
+                      autoFocus
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          onRename(id, (event.target as HTMLInputElement).value);
+                          close();
+                        } else if (event.key === "Escape") {
+                          close();
+                        }
                       }}
-                    >
-                      清除
-                    </button>
-                    <button
-                      type="button"
-                      className="primary-button"
-                      onClick={(event) => {
-                        const input = (event.currentTarget.closest(".speaker-rename") as HTMLElement)?.querySelector("input");
-                        if (input) onRename(id, (input as HTMLInputElement).value);
-                        close();
-                      }}
-                    >
-                      保存
-                    </button>
+                    />
+                    <div className="speaker-rename-actions">
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => {
+                          onRename(id, "");
+                          close();
+                        }}
+                      >
+                        清除
+                      </button>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={(event) => {
+                          const input = (event.currentTarget.closest(".speaker-rename") as HTMLElement)?.querySelector("input");
+                          if (input) onRename(id, (input as HTMLInputElement).value);
+                          close();
+                        }}
+                      >
+                        保存
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </Popover>
-            <button
-              type="button"
-              className="speaker-seek"
-              onClick={() => onSeek(item.startMs)}
-              title={`跳转到 ${duration(Math.floor(item.startMs / 1000))}`}
-            >
-              <small>
-                {duration(Math.floor(item.startMs / 1000))}–
-                {duration(Math.floor(item.endMs / 1000))}
-              </small>
-            </button>
+                )}
+              </Popover>
+              <button
+                type="button"
+                className="speaker-seek"
+                onClick={() => onSeek(item.startMs)}
+                title={`跳转到 ${duration(Math.floor(item.startMs / 1000))}`}
+              >
+                <small>
+                  {duration(Math.floor(item.startMs / 1000))}–
+                  {duration(Math.floor(item.endMs / 1000))}
+                </small>
+              </button>
+            </div>
             {editingIndex === sourceIndex ? (
               <div className="speaker-inline-edit">
                 <textarea

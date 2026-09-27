@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock3,
+  Columns2,
   Copy,
   FileAudio,
   FileDown,
@@ -28,10 +29,12 @@ import {
   Settings,
   Sparkles,
   Square,
+  StickyNote,
   Trash2,
   Upload,
   UsersRound,
   Wand2,
+  X,
 } from "lucide-react";
 import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type {
@@ -75,6 +78,7 @@ import {
   AudioPlayer,
   CommandPalette,
   type Command,
+  Dialog,
   EditorField,
   Empty,
   GlobalSearch,
@@ -2452,6 +2456,16 @@ function Home({
   );
 }
 
+// 对照阅读需要足够的横向空间：详情列在「导航 + 会议列表 + 详情」三层布局下只有约 850px，
+// 强行对分会把转写正文压到 100px 上下。因此只有宽屏才默认进入对照，窄屏沿用原来的单栏 Tab。
+function wideEnoughForContrast() {
+  return typeof window !== "undefined" && window.matchMedia("(min-width: 1400px)").matches;
+}
+function initialWorkspaceTab(target: Meeting | null): "split" | "summary" | "transcript" {
+  if (!target?.minutes.trim()) return "transcript";
+  return wideEnoughForContrast() ? "split" : "summary";
+}
+
 function Meetings({
   meetings,
   meeting,
@@ -2538,16 +2552,19 @@ function Meetings({
   const [seekRequest, setSeekRequest] = useState<{ time: number; nonce: number } | null>(null);
   const [currentMs, setCurrentMs] = useState(-1);
   const [taskComposing, setTaskComposing] = useState(false);
-  const [workspaceTab, setWorkspaceTab] = useState<"summary" | "transcript" | "notes" | "qa">(
-    meeting?.minutes.trim() ? "summary" : "transcript",
+  const [workspaceTab, setWorkspaceTab] = useState<"split" | "summary" | "transcript" | "qa">(
+    initialWorkspaceTab(meeting),
   );
+  const [notesOpen, setNotesOpen] = useState(false);
   // 会前背景条：默认收起；有内容时收起并显示首行预览，空时展开引导填写
   const [contextOpen, setContextOpen] = useState<boolean | null>(null);
   const contextExpanded = contextOpen ?? !meeting?.context?.trim();
+  const isContrast = workspaceTab === "split";
 
   useEffect(() => {
-    setWorkspaceTab(meeting?.minutes.trim() ? "summary" : "transcript");
+    setWorkspaceTab(initialWorkspaceTab(meeting));
     setContextOpen(null);
+    setNotesOpen(false);
   }, [meeting?.id]);
 
   // 解析说话人段数用于 Tab 计数徽章
@@ -2605,20 +2622,26 @@ function Meetings({
     });
   };
 
-  const notesPane = meeting ? (
-    <section className="my-notes-pane">
-      <div className="my-notes-head">
-        <h3>我的笔记</h3>
-        <small>随手记下观察和想法，智能纪要不会覆盖这里</small>
+  // 我的笔记改为右侧抽屉：不再长期占用主栏，只在需要时滑出。
+  // 复用 Dialog 原语，以沿用统一的遮罩、Esc、Tab 焦点循环与关闭后还焦。
+  const notesDrawer = meeting && notesOpen ? (
+    <Dialog className="notes-drawer" ariaLabel="我的笔记" onClose={() => setNotesOpen(false)}>
+      <div className="notes-drawer-head">
+        <div>
+          <h3>我的笔记</h3>
+          <small>随手记下观察和想法，智能纪要不会覆盖这里 · 自动保存</small>
+        </div>
+        <IconButton icon={X} label="关闭笔记" onClick={() => setNotesOpen(false)} />
       </div>
-      <EditorField
-        label="我的笔记"
-        hint="随时记录你的观察和想法（纯文本，自动保存）"
+      <textarea
+        className="notes-drawer-input"
+        aria-label="我的笔记"
+        autoFocus
         value={meeting.notes}
-        onChange={(notes) => onChange({ ...meeting, notes })}
-        placeholder="随时记下你的观察与想法"
+        onChange={(event) => onChange({ ...meeting, notes: event.target.value })}
+        placeholder="随时记下你的观察与想法（纯文本，自动保存）"
       />
-    </section>
+    </Dialog>
   ) : null;
 
   const transcriptPane = meeting ? (
@@ -2715,21 +2738,11 @@ function Meetings({
               <RefreshCw size={14} />只重写纪要
             </button>
           )}
-          <button
-            className="pane-action"
-            onClick={onAnalyze}
-            disabled={!aiConfigured || !meeting.transcript.trim() || busy}
-            title="选择模板并先预览，不会直接覆盖"
-          >
-            {processing === "analyzing" ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />}
-            {meeting.minutes.trim() ? "生成新版本" : "生成纪要"}
-          </button>
         </div>
       </div>
       {meeting.minutes.trim() || aiConfigured ? (
         <MarkdownField
-          label="智能纪要"
-          hint="AI 基于转写稿生成的结构化纪要（Markdown，预览时渲染格式）"
+          hint="Markdown 预览会渲染标题、列表与表格"
           value={stripHtml(meeting.minutes)}
           onChange={(minutes) => onChange({ ...meeting, minutes })}
           placeholder="生成纪要后显示在这里"
@@ -2760,7 +2773,6 @@ function Meetings({
               </button>
             </div>
             <MarkdownField
-              label="决策与共识"
               hint="只保留明确决定；不确定项会标记待确认"
               value={meeting.decisions}
               onChange={(decisions) => onChange({ ...meeting, decisions })}
@@ -2812,7 +2824,7 @@ function Meetings({
   ) : null;
 
   return (
-    <div className={`meeting-shell ${meeting ? "has-meeting" : ""} ${recording ? "is-live" : ""}`}>
+    <div className={`meeting-shell ${meeting ? "has-meeting" : ""} ${recording ? "is-live" : ""} ${isContrast ? "is-contrast" : ""}`}>
       {!recording && (
         <MeetingSidebar
           meetings={meetings}
@@ -2885,7 +2897,24 @@ function Meetings({
               />
             ) : (
               <>
-                {journey && (
+                {journey && (journey.step === 4 ? (
+                  <section className="meeting-journey-card is-complete">
+                    <div className="journey-complete-copy">
+                      <Check size={15} />
+                      <strong>{journey.label}</strong>
+                      <small>{journey.detail}</small>
+                    </div>
+                    <div className="meeting-journey-actions">
+                      <button className="secondary-button compact-button" disabled={busy} onClick={onImport}>
+                        {processing === "importing" ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}
+                        {processing === "importing" ? "正在导入" : "导入录音"}
+                      </button>
+                      <button className="record-button compact-button" disabled={busy} onClick={onRecord}>
+                        <Mic size={14} />{meeting.audioPath ? "重新录音" : "开始录音"}
+                      </button>
+                    </div>
+                  </section>
+                ) : (
                   <section className={`meeting-journey-card step-${journey.step}`}>
                     <div className="meeting-journey-copy">
                       <span>当前进度</span>
@@ -2923,21 +2952,20 @@ function Meetings({
                       </button>
                     </div>
                   </section>
-                )}
+                ))}
 
-                <section className="meeting-preflight">
-                  <div className="preflight-heading">
-                    <div>
-                      <strong>会议上下文</strong>
-                      <small>议程、参会人和专业术语会用于热词校正与纪要理解</small>
-                    </div>
-                  </div>
+                {/* 常驻一行：会议背景直接影响热词校正与纪要理解，不该藏在外层卡片标题之后 */}
+                <section className="meeting-context" aria-label="会议背景">
                   <div className={`context-strip ${contextExpanded ? "open" : ""}`}>
-                    <button className="context-strip-head" onClick={() => setContextOpen(!contextExpanded)}>
+                    <button
+                      className="context-strip-head"
+                      aria-expanded={contextExpanded}
+                      onClick={() => setContextOpen(!contextExpanded)}
+                    >
                       <ChevronRight size={14} style={{ transform: contextExpanded ? "rotate(90deg)" : "none", transition: "transform 120ms" }} />
-                      <span>议程与背景</span>
+                      <span>会议背景</span>
                       {!contextExpanded && meeting.context.trim() && <small>{meeting.context.trim().split("\n")[0]}</small>}
-                      {!contextExpanded && !meeting.context.trim() && <small className="context-empty">添加议程、术语或参会人</small>}
+                      {!contextExpanded && !meeting.context.trim() && <small className="context-empty">议程、参会人、术语用于热词校正与纪要理解</small>}
                     </button>
                     {contextExpanded && (
                       <textarea
@@ -2976,21 +3004,37 @@ function Meetings({
                   />
                 </section>
 
-                <div className="meeting-workspace">
+                <div className={`meeting-workspace ${isContrast ? "is-contrast" : ""}`}>
                   <nav className="meeting-workspace-tabs" aria-label="会议内容">
+                    <button className={workspaceTab === "split" ? "active" : ""} onClick={() => setWorkspaceTab("split")}>
+                      <span><Columns2 size={15} />对照阅读</span>
+                    </button>
                     <button className={workspaceTab === "summary" ? "active" : ""} onClick={() => setWorkspaceTab("summary")}>
                       <span><Sparkles size={15} />智能纪要</span>{meetingTasks.length > 0 && <b>{meetingTasks.length}</b>}
                     </button>
                     <button className={workspaceTab === "transcript" ? "active" : ""} onClick={() => setWorkspaceTab("transcript")}>
                       <span><FileAudio size={15} />原文校对</span>{speakerSegments.length > 0 && <b>{speakerSegments.length}</b>}
                     </button>
-                    <button className={workspaceTab === "notes" ? "active" : ""} onClick={() => setWorkspaceTab("notes")}><span><Pencil size={15} />我的笔记</span></button>
                     <button className={workspaceTab === "qa" ? "active" : ""} onClick={() => setWorkspaceTab("qa")}><span><MessageCircleQuestion size={15} />会议问答</span></button>
+                    <button
+                      type="button"
+                      className="meeting-notes-trigger"
+                      aria-haspopup="dialog"
+                      title="打开笔记抽屉"
+                      onClick={() => setNotesOpen(true)}
+                    >
+                      <span><StickyNote size={15} />我的笔记{meeting.notes.trim() && <i className="notes-dot" aria-hidden="true" />}</span>
+                    </button>
                   </nav>
                   <div className="meeting-workspace-content">
+                    {workspaceTab === "split" && (
+                      <div className="meeting-contrast">
+                        {transcriptPane}
+                        {minutesPane}
+                      </div>
+                    )}
                     {workspaceTab === "summary" && minutesPane}
                     {workspaceTab === "transcript" && transcriptPane}
-                    {workspaceTab === "notes" && notesPane}
                     {workspaceTab === "qa" && (
                       <MeetingQaPanel
                         meetingId={meeting.id}
@@ -3010,6 +3054,7 @@ function Meetings({
           </div>
         )}
       </main>
+      {notesDrawer}
     </div>
   );
 }

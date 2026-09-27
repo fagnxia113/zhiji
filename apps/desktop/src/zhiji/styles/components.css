@@ -43,19 +43,9 @@
   background: var(--bg-inset);
   color: var(--text-strong);
 }
-.home-quickbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3, 12px);
-}
 .record-cta {
   font-size: 14px;
   padding: var(--space-3, 12px) var(--space-4, 16px);
-}
-.palette-hint {
-  margin-left: auto;
-  font-size: 12px;
 }
 
 .secondary-button {
@@ -102,38 +92,9 @@
 
 .compact-button { flex: none; padding: 8px var(--space-3); }
 
-.icon-danger-button {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  flex: none;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-md);
-  color: var(--danger-fg);
-  background: var(--danger-bg);
-  transition: background var(--dur-fast) var(--ease-out);
-}
-.icon-danger-button:hover { background: var(--danger-hover-bg); color: var(--danger); }
-
 button:disabled { cursor: not-allowed; opacity: .55; }
 
 /* —— 状态徽章 —— */
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 3px 10px;
-  border-radius: var(--radius-pill);
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.status-badge.neutral  { color: var(--text-muted); background: var(--bg-inset); }
-.status-badge.info     { color: var(--info-fg);   background: var(--info-bg); }
-.status-badge.success  { color: var(--success-fg); background: var(--success-bg); }
-.status-badge.warning  { color: var(--warning-fg); background: var(--warning-bg); }
-.status-badge.brand    { color: white; background: var(--accent); }
 
 /* —— 计数 pill —— */
 .count-pill {
@@ -150,18 +111,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 }
 
 /* —— 说话人头像 —— */
-.avatar {
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  color: white;
-  font-size: 11px;
-  font-weight: 700;
-  flex: none;
-  box-shadow: var(--shadow-xs);
-}
 
 /* —— 面板（首页最近列表用）—— */
 .panel {
@@ -172,7 +121,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   box-shadow: var(--shadow-xs);
 }
 
-.panel-title, .pane-heading, .editor-top, .tasks-intro {
+.panel-title, .tasks-intro {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -226,27 +175,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .round-icon.brand   { color: var(--accent-text); background: var(--accent-subtle); }
 
 /* —— 左右分栏布局（会议列表 + 详情）—— */
-.split-layout {
-  height: calc(100vh - 148px);
-  min-height: 480px;
-  display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--bg-surface);
-  overflow: hidden;
-  box-shadow: var(--shadow-xs);
-}
-
-.list-pane {
-  overflow: auto;
-  border-right: 1px solid var(--border-subtle);
-  background: var(--bg-subtle);
-}
-
-.pane-heading { padding: var(--space-5) var(--space-4) var(--space-4); }
-.pane-heading h2 { margin: 0; font-size: 16px; color: var(--text-strong); font-weight: 600; }
-.pane-heading small { display: block; margin-top: 4px; color: var(--text-faint); font-size: 11px; }
 
 .round-add {
   display: grid;
@@ -262,7 +190,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .round-add:hover { background: var(--bg-inset); }
 
 /* —— 会议 / 笔记 列表项 —— */
-.meeting-item, .note-item {
+.meeting-item {
   position: relative;
   width: 100%;
   display: flex;
@@ -276,12 +204,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   text-align: left;
   transition: background var(--dur-fast) var(--ease-out);
 }
-.meeting-item:hover, .note-item:hover { background: var(--bg-surface); }
-.meeting-item.selected, .note-item.selected {
+.meeting-item:hover { background: var(--bg-surface); }
+.meeting-item.selected {
   color: var(--accent-text);
   background: var(--accent-subtle);
 }
-.meeting-item.selected::before, .note-item.selected::before {
+.meeting-item.selected::before {
   position: absolute;
   left: 0;
   top: 8px;
@@ -291,16 +219,16 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   background: var(--accent);
   content: "";
 }
-.meeting-item > span:nth-child(2), .note-item > span { min-width: 0; flex: 1; }
-.meeting-item strong, .meeting-item small, .note-item strong, .note-item small {
+.meeting-item > span:nth-child(2) { min-width: 0; flex: 1; }
+.meeting-item strong, .meeting-item small {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.meeting-item strong, .note-item strong { color: var(--text-default); font-size: 13px; }
+.meeting-item strong { color: var(--text-default); font-size: 13px; }
 .selected strong { color: var(--accent-text); }
-.meeting-item small, .note-item small { margin-top: 4px; color: var(--text-faint); font-size: 11px; }
+.meeting-item small { margin-top: 4px; color: var(--text-faint); font-size: 11px; }
 
 .meeting-date {
   width: 30px;
@@ -316,17 +244,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 }
 
 /* —— 会议编辑器 —— */
-.editor-pane {
-  min-width: 0;
-  overflow: auto;
-  padding: var(--space-6) var(--space-8);
-}
-
-.editor-top {
-  gap: var(--space-4);
-  padding-bottom: var(--space-5);
-  border-bottom: 1px solid var(--border-subtle);
-}
 
 .title-input {
   display: block;
@@ -341,15 +258,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   letter-spacing: -.01em;
 }
 
-.editor-top small {
-  display: block;
-  margin-top: var(--space-2);
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.editor-buttons { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
-
 .autosave-hint {
   color: var(--text-faint);
   font-size: 11px;
@@ -358,25 +266,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 }
 
 /* —— 录音状态条 —— */
-.recording-bar {
-  min-height: 48px;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: var(--space-5) 0;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  color: var(--text-default);
-  background: var(--bg-subtle);
-  font-size: 13px;
-  border: 1px solid var(--border-subtle);
-}
-.recording-bar.recording { background: var(--accent-subtle); border-color: var(--accent-text); }
-.recording-bar > span:not(.recording-wave):not(.recording-dot) { min-width: 0; flex: 1; }
-.recording-bar strong { color: var(--text-strong); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-.recording-live-copy { display: grid; gap: 2px; }
-.recording-live-copy > small { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.recording-live-copy > .recording-warning { color: var(--danger-fg); white-space: normal; }
 
 .recording-wave {
   display: inline-flex;
@@ -432,7 +321,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   line-height: 1.7;
   font-size: 14px;
 }
-.editor-field textarea::placeholder, .note-content::placeholder { color: var(--text-disabled); }
+.editor-field textarea::placeholder { color: var(--text-disabled); }
 
 /* —— Markdown 预览字段（纪要/决策） —— */
 .editor-field-head {
@@ -441,6 +330,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   justify-content: space-between;
   gap: var(--space-3);
 }
+/* 标题已由外层 pane-head / section-heading 承担时，这里只留编辑/预览开关，避免同一标题出现两次。 */
+.editor-field-head.is-bare { justify-content: flex-end; }
 .md-toggle {
   flex-shrink: 0;
   display: inline-flex;
@@ -505,38 +396,40 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 }
 .markdown-body hr { border: 0; border-top: 1px solid var(--border-subtle); margin: var(--space-5) 0; }
 
-/* —— 笔记编辑器 —— */
-.note-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: var(--space-5) 0;
-  color: var(--text-muted);
-}
-.note-meta select, .note-meta input {
-  height: 32px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--border-default);
+/* AI 常把「排期 / 分工 / 方案对比」写成 Markdown 表格。补上表格样式后，
+   这类内容才真的像一份可交付的专业纪要，而不是一堆挤在一起的裸文本。 */
+.markdown-table-wrap {
+  margin: var(--space-4) 0;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  color: var(--text-default);
-  outline: 0;
   background: var(--bg-surface);
-  font-size: 12px;
 }
-.note-meta input { width: 210px; }
-.note-meta input:focus, .note-meta select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.markdown-table-wrap:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.markdown-table-wrap > table { width: 100%; border-collapse: collapse; font-size: 12.5px; line-height: 1.55; }
+.markdown-table-wrap th,
+.markdown-table-wrap td {
+  padding: 7px var(--space-3);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+}
+.markdown-table-wrap th:last-child,
+.markdown-table-wrap td:last-child { border-right: 0; }
+.markdown-table-wrap tbody tr:last-child td { border-bottom: 0; }
+.markdown-table-wrap thead th {
+  background: var(--bg-subtle);
+  color: var(--text-strong);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.markdown-table-wrap tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--bg-subtle) 55%, transparent); }
+.markdown-table-wrap tbody tr:hover td { background: var(--accent-subtle); }
+.markdown-table-wrap > table > tbody > tr > td:first-child { color: var(--text-strong); font-weight: 500; }
 
-.note-content {
-  width: 100%;
-  min-height: calc(100% - 115px);
-  border: 0;
-  outline: 0;
-  resize: none;
-  color: var(--text-default);
-  line-height: 1.85;
-  font-size: 15px;
-  background: transparent;
-}
+/* —— 笔记编辑器 —— */
 
 /* —— 任务行 —— */
 .task-row {
@@ -608,14 +501,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   font-size: 10px;
 }
 button.task-source:hover:not(:disabled) { color: var(--accent-text); background: var(--accent-subtle); }
-.home-task-focus { display: grid; grid-template-columns: repeat(3, minmax(90px, 130px)) minmax(150px, 1fr); gap: var(--space-2); }
-.home-task-focus > button { display: flex; align-items: baseline; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); color: var(--text-muted); background: var(--bg-surface); text-align: left; }
-.home-task-focus > button strong { color: var(--text-strong); font-size: 20px; font-variant-numeric: tabular-nums; }
-.home-task-focus > button span { font-size: 11px; }
-.home-task-focus > button.attention { border-color: color-mix(in srgb, var(--danger-fg) 25%, var(--border-subtle)); background: var(--danger-bg); }
-.home-task-focus > button.attention strong { color: var(--danger-fg); }
-.home-task-focus > button.today { border-color: color-mix(in srgb, var(--warning-fg) 25%, var(--border-subtle)); background: var(--warning-bg); }
-.home-task-focus > .home-task-link { justify-content: flex-end; align-items: center; color: var(--accent-text); }
 .task-dashboard { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--space-2); margin: 0 0 var(--space-3); }
 .task-dashboard > button { display: grid; gap: 2px; padding: var(--space-3) var(--space-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); color: var(--text-muted); background: var(--bg-surface); text-align: left; }
 .task-dashboard > button strong { color: var(--text-strong); font-size: 18px; font-variant-numeric: tabular-nums; }
@@ -628,8 +513,6 @@ button.task-source:hover:not(:disabled) { color: var(--accent-text); background:
 .task-toolbar select { min-width: 140px; padding: 0 var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); color: var(--text-default); background: var(--bg-surface); }
 @media (max-width: 760px) {
   .task-dashboard { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .home-task-focus { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .home-task-focus > .home-task-link { grid-column: 1 / -1; justify-content: center; }
 }
 .task-edit-title,
 .task-edit-due {
@@ -792,38 +675,65 @@ button.task-source:hover:not(:disabled) { color: var(--accent-text); background:
 }
 .speaker-load-more:hover { color: var(--accent-text, var(--text-strong)); border-color: var(--accent, var(--border-color)); }
 
+/* 说话人时间线「轻量化」：标签只留一个色点 + 名字，不再给每行铺卡片底色。
+   时间戳默认收起——正文本身可点击跳转音频，时间不该长期占掉一列宽度。 */
 .speaker-row {
   display: grid;
-  grid-template-columns: 72px 104px 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: var(--space-3);
   align-items: start;
   width: 100%;
   padding: var(--space-2) var(--space-3);
   border: 0;
   border-radius: var(--radius-md);
-  background: var(--bg-subtle);
+  background: none;
   transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-base) var(--ease-out);
 }
-.speaker-row:hover { background: var(--accent-subtle); }
+.speaker-row:hover { background: var(--bg-subtle); }
+.speaker-meta {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  min-width: 0;
+  max-width: 104px;
+}
 .speaker-chip {
   display: inline-flex;
   align-items: center;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--accent-text);
-  background: var(--accent-subtle);
+  gap: 6px;
+  max-width: 100%;
+  padding: 1px 6px 1px 3px;
   border: 1px solid transparent;
-  border-radius: 999px;
-  padding: 2px 10px;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   user-select: none;
-  white-space: nowrap;
 }
-.speaker-chip:hover { border-color: var(--accent); }
+.speaker-chip:hover { color: var(--accent); background: var(--accent-subtle); }
+.speaker-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-disabled);
+}
+.speaker-dot[data-speaker="0"] { background: #07c160; }
+.speaker-dot[data-speaker="1"] { background: #3b82f6; }
+.speaker-dot[data-speaker="2"] { background: #f59e0b; }
+.speaker-dot[data-speaker="3"] { background: #8b5cf6; }
+.speaker-dot[data-speaker="4"] { background: #14b8a6; }
+.speaker-dot[data-speaker="5"] { background: #ec4899; }
 .speaker-seek {
   background: none;
   border: none;
-  padding: 0;
+  padding: 0 0 0 4px;
   margin: 0;
   cursor: pointer;
   font: inherit;
@@ -832,8 +742,13 @@ button.task-source:hover:not(:disabled) { color: var(--accent-text); background:
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   text-align: left;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.speaker-row > p { margin: 0; color: var(--text-default); font-size: 12px; line-height: 1.55; cursor: pointer; }
+.speaker-row:hover .speaker-seek,
+.speaker-row:focus-within .speaker-seek,
+.speaker-row.active .speaker-seek { opacity: 1; }
+.speaker-seek:hover { color: var(--accent); }
 .speaker-row-content { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--space-2); }
 .speaker-row-content > p { margin: 0; color: var(--text-default); font-size: 12.5px; line-height: 1.65; cursor: pointer; }
 .speaker-row-content > .icon-btn { width: 26px; height: 26px; opacity: 0; }
@@ -861,7 +776,7 @@ button.task-source:hover:not(:disabled) { color: var(--accent-text); background:
   box-shadow: inset 3px 0 0 var(--accent);
 }
 .speaker-row.active .speaker-chip { color: var(--accent); }
-.speaker-row.active > p { color: var(--text-strong); }
+.speaker-row.active .speaker-row-content > p { color: var(--text-strong); }
 
 .speaker-rename { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2); min-width: 220px; }
 .speaker-rename-input {
@@ -877,13 +792,6 @@ button.task-source:hover:not(:disabled) { color: var(--accent-text); background:
 .speaker-rename-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
 
 /* —— 会议标题行（标题 + AI 重命名）—— */
-.title-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-.title-row .title-input { flex: 1; min-width: 0; }
-.title-row .compact-button { flex: none; white-space: nowrap; }
 
 /* —— 会前背景条（可折叠）—— */
 .context-strip {
@@ -933,13 +841,6 @@ button.task-source:hover:not(:disabled) { color: var(--accent-text); background:
 .context-input::placeholder { color: var(--text-disabled); }
 
 /* —— 会议工作区：录音中双栏，会后按内容切换 —— */
-.meeting-live-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(300px, .72fr);
-  gap: var(--space-4);
-  margin-top: var(--space-4);
-  align-items: start;
-}
 
 .live-transcript-pane {
   display: flex;
@@ -994,7 +895,6 @@ button.task-source:hover:not(:disabled) { color: var(--accent-text); background:
 .live-caption-empty strong { color: var(--text-default); font-size: 14px; }
 .live-caption-empty small { max-width: 360px; line-height: 1.6; }
 .live-transcript-pane > .recording-warning { padding: var(--space-3) var(--space-5); border-top: 1px solid var(--danger-bg); }
-.recording-live-state { color: var(--success-fg) !important; }
 
 .meeting-workspace {
   width: min(100%, 1180px);
@@ -1047,34 +947,88 @@ button.task-source:hover:not(:disabled) { color: var(--accent-text); background:
 .meeting-workspace-content { min-width: 0; animation: fade-in var(--dur-base) var(--ease-out); }
 .meeting-workspace-content > section { position: static; }
 
+/* 对照阅读：先把会议列表让出来（专注模式），再放宽工作区。
+   是否真正分栏交给容器查询判断——容器不够宽就退回单列，
+   避免把「时间 72 + 说话人 104 + 正文」的三列转写行压到不可读。 */
+.meeting-shell.is-contrast { grid-template-columns: minmax(0, 1fr); }
+.meeting-shell.is-contrast .meeting-sidebar { display: none; }
+.meeting-shell.is-contrast .meeting-context, .meeting-shell.is-contrast .meeting-review-tools, .meeting-workspace.is-contrast { width: min(calc(100% - 40px), 1240px); }
+
+.meeting-workspace.is-contrast { container-type: inline-size; }
+.meeting-contrast {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+/* 转写比纪要更吃宽度，分栏时给转写 1.55 份 */
+@container (min-width: 980px) {
+  .meeting-contrast { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); }
+}
+.meeting-contrast > section { position: static; }
+
+/* 笔记入口：贴着 Tab 行右端，和切换型 Tab 在视觉上分开 */
+.meeting-workspace-tabs .meeting-notes-trigger { margin-left: auto; }
+.meeting-workspace-tabs .meeting-notes-trigger:hover { color: var(--accent-text); background: var(--accent-subtle); }
+.notes-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+/* 我的笔记抽屉：复用 .modal-overlay / .modal，只把它拉成贴右的竖版面板，
+   从而沿用统一的遮罩、Esc、Tab 焦点循环与关闭后还焦。 */
+.modal.notes-drawer {
+  width: min(460px, 94vw);
+  align-self: stretch;
+  margin: 0 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  animation: drawer-slide-in var(--dur-base) var(--ease-out);
+}
+@keyframes drawer-slide-in {
+  from { transform: translateX(22px); opacity: .5; }
+  to { transform: none; opacity: 1; }
+}
+.notes-drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
+}
+.notes-drawer-head h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--text-strong); }
+.notes-drawer-head small { display: block; margin-top: 4px; color: var(--text-faint); font-size: 11px; line-height: 1.5; }
+.notes-drawer-input {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding: var(--space-4) var(--space-5);
+  border: 0;
+  outline: 0;
+  resize: none;
+  color: var(--text-default);
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.8;
+}
+.notes-drawer-input::placeholder { color: var(--text-disabled); }
+
+@media (max-width: 900px) {
+  .meeting-workspace-tabs .meeting-notes-trigger { margin-left: 0; }
+}
+
 /* 窄窗回退：录音双栏 → 单列堆叠 */
 @media (max-width: 900px) {
-  .meeting-live-grid {
-    grid-template-columns: 1fr;
-  }
-  .my-notes-pane,
-  .transcript-pane,
-  .minutes-pane {
+  .transcript-pane, .minutes-pane {
     position: static;
   }
-  .transcript-pane .editor-field textarea,
-  .minutes-pane .editor-field textarea,
-  .my-notes-input {
+  .transcript-pane .editor-field textarea, .minutes-pane .editor-field textarea {
     min-height: 280px;
   }
   .meeting-workspace-tabs { overflow-x: auto; }
   .meeting-workspace-tabs button { flex: 1 0 auto; }
-}
-.my-notes-pane {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--bg-surface);
-  box-shadow: var(--shadow-xs);
-  overflow: hidden;
-  position: sticky;
-  top: 0;
 }
 /* 会后内容面板 */
 .transcript-pane,
@@ -1207,80 +1161,11 @@ button.task-source:hover:not(:disabled) { color: var(--accent-text); background:
   border-top: 1px solid var(--border-subtle);
 }
 
-.my-notes-head {
-  padding: var(--space-4) var(--space-5) var(--space-3);
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-subtle);
-}
-.my-notes-head h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-strong); }
-.my-notes-head small { display: block; margin-top: 4px; color: var(--text-faint); font-size: 11px; }
-.my-notes-input {
-  width: 100%;
-  min-height: 420px;
-  flex: 1;
-  padding: var(--space-4) var(--space-5);
-  border: 0;
-  outline: 0;
-  resize: vertical;
-  color: var(--text-default);
-  background: transparent;
-  font-size: 14px;
-  line-height: 1.75;
-}
-.my-notes-input::placeholder { color: var(--text-disabled); }
-
 /* —— 会议详情 Tabs —— */
-.meeting-tabs { margin-top: 0; min-width: 0; }
-
-.tab-bar {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  display: flex;
-  gap: var(--space-1);
-  padding: var(--space-2) 0;
-  margin-bottom: var(--space-4);
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-surface);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.tab-bar::-webkit-scrollbar { display: none; }
-
-.tab-item {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.tab-item:hover { background: var(--bg-subtle); color: var(--text-default); }
-.tab-item.active { color: var(--text-strong); font-weight: 600; }
-.tab-item.active::after {
-  position: absolute;
-  left: var(--space-3);
-  right: var(--space-3);
-  bottom: -9px;
-  height: 2px;
-  border-radius: var(--radius-pill);
-  background: var(--accent);
-  content: "";
-  animation: tab-indicator var(--dur-base) var(--ease-out);
-}
 @keyframes tab-indicator {
   from { transform: scaleX(0); }
   to   { transform: scaleX(1); }
 }
-.tab-item.active .count-pill { color: var(--accent-text); background: var(--accent-subtle); }
 
 .tab-panel { animation: fade-in var(--dur-base) var(--ease-out); }
 .tab-panel-empty {
@@ -1294,8 +1179,6 @@ button.task-source:hover:not(:disabled) { color: var(--accent-text); background:
 }
 
 /* 大留白文档式阅读宽度（智能纪要 Tab） */
-.tab-panel-doc { max-width: 760px; margin: 0 auto; }
-.tab-panel-doc .editor-field textarea { min-height: 320px; font-size: 15px; line-height: 1.8; }
 
 /* —— 段落头 —— */
 .section-heading {
@@ -1516,78 +1399,6 @@ button.task-source:hover:not(:disabled) { color: var(--accent-text); background:
 .update-progress small { display: block; margin-top: var(--space-2); color: var(--text-faint); font-size: 11px; }
 
 /* —— Markdown 可视化编辑器（TipTap，所见即所得）—— */
-.md-editor {
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-  overflow: hidden;
-}
-.md-editor:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
-.md-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  padding: var(--space-1) var(--space-2);
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-subtle);
-}
-.md-tool {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.md-tool:hover { background: var(--bg-inset); color: var(--text-default); }
-.md-tool.active { background: var(--accent-subtle); color: var(--accent); }
-
-.md-editor-content {
-  min-height: 220px;
-  max-height: 60vh;
-  overflow-y: auto;
-  padding: var(--space-4) var(--space-5);
-  font-size: 14px;
-  line-height: 1.7;
-  color: var(--text-default);
-  outline: none;
-}
-.md-editor-content:focus { outline: none; }
-.md-editor-content > *:first-child { margin-top: 0; }
-.md-editor-content > *:last-child { margin-bottom: 0; }
-.md-editor-content h1 { font-size: 1.5em; font-weight: 700; margin: var(--space-5) 0 var(--space-2); }
-.md-editor-content h2 { font-size: 1.25em; font-weight: 700; margin: var(--space-4) 0 var(--space-2); }
-.md-editor-content h3 { font-size: 1.1em; font-weight: 600; margin: var(--space-3) 0 var(--space-2); }
-.md-editor-content p { margin: var(--space-2) 0; }
-.md-editor-content ul,
-.md-editor-content ol { margin: var(--space-2) 0; padding-left: 1.5em; }
-.md-editor-content li { margin: 2px 0; }
-.md-editor-content strong { font-weight: 700; }
-.md-editor-content code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.9em;
-  background: var(--bg-inset);
-  padding: 1px 5px;
-  border-radius: var(--radius-sm);
-}
-.md-editor-content blockquote {
-  margin: var(--space-2) 0;
-  padding-left: var(--space-4);
-  border-left: 3px solid var(--border-default);
-  color: var(--text-muted);
-}
-.md-editor-content .is-editor-empty:first-child::before {
-  content: attr(data-placeholder);
-  float: left;
-  height: 0;
-  color: var(--text-faint);
-  pointer-events: none;
-}
 
 /* —— 浮层：Popover（说话人改名等内联操作） —— */
 .popover-anchor { position: relative; display: inline-block; }
@@ -1694,62 +1505,14 @@ button.task-source:hover:not(:disabled) { color: var(--accent-text); background:
 .meeting-action-menu > button.danger { color: var(--danger-fg); }
 .meeting-action-menu > span { height: 1px; margin: var(--space-1) 0; background: var(--border-subtle); }
 
-.meeting-preflight,
+.meeting-context,
 .meeting-review-tools,
 .meeting-workspace { width: min(calc(100% - 40px), 1120px); margin-left: auto; margin-right: auto; }
-.meeting-preflight {
-  margin-top: var(--space-5);
-  padding: var(--space-4);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--bg-surface);
-  box-shadow: var(--shadow-xs);
-}
-.preflight-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
-.preflight-heading strong, .preflight-heading small { display: block; }
-.preflight-heading strong { color: var(--text-strong); font-size: 13px; }
-.preflight-heading small { margin-top: 4px; color: var(--text-faint); font-size: 11px; }
-.meeting-capture-actions { display: flex; align-items: center; gap: var(--space-2); flex: none; }
-.meeting-preflight .context-strip { margin-top: var(--space-3); box-shadow: none; }
-
-.meeting-processing-banner {
-  width: min(calc(100% - 40px), 1120px);
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin: var(--space-4) auto 0;
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--accent-text);
-  border-radius: var(--radius-lg);
-  color: var(--accent-text);
-  background: var(--accent-subtle);
-}
-.meeting-processing-banner span { min-width: 0; }
-.meeting-processing-banner strong, .meeting-processing-banner small { display: block; }
-.meeting-processing-banner strong { color: var(--text-strong); font-size: 12px; }
-.meeting-processing-banner small { margin-top: 3px; color: var(--text-muted); font-size: 11px; }
+/* 会议背景条自身就是卡片，不再额外套一层带标题的外壳卡片 */
+.meeting-context { margin-top: var(--space-3); }
+.meeting-context .context-strip { margin-top: 0; }
 
 .meeting-review-tools { margin-top: var(--space-4); }
-.meeting-progress-strip {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  margin-bottom: var(--space-3);
-  color: var(--text-faint);
-  font-size: 11px;
-}
-.meeting-progress-strip > span,
-.meeting-progress-strip > button { display: flex; align-items: center; gap: 6px; padding: 3px 5px; border: 0; border-radius: var(--radius-md); color: inherit; background: transparent; font: inherit; white-space: nowrap; }
-.meeting-progress-strip > button:not(:disabled) { cursor: pointer; }
-.meeting-progress-strip > button:hover:not(:disabled) { background: var(--bg-hover); }
-.meeting-progress-strip > button:disabled { cursor: default; }
-.meeting-progress-strip > :is(span, button) i { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; background: var(--bg-inset); color: var(--text-muted); font-style: normal; font-weight: 700; }
-.meeting-progress-strip > :is(span, button).done { color: var(--success-fg); }
-.meeting-progress-strip > :is(span, button).done i { color: var(--success-fg); background: var(--success-bg); }
-.meeting-progress-strip > :is(span, button).current { color: var(--accent-text); font-weight: 600; }
-.meeting-progress-strip > :is(span, button).current i { color: white; background: var(--accent); }
-.meeting-progress-strip > b { height: 1px; min-width: 20px; flex: 1; background: var(--border-subtle); }
 .meeting-review-tools .audio-player { margin-bottom: var(--space-3); }
 .meeting-review-tools .ai-workflow { margin-bottom: 0; padding: var(--space-3) var(--space-4); background: var(--bg-surface); }
 .meeting-workspace { margin-top: var(--space-4); margin-bottom: var(--space-8); }

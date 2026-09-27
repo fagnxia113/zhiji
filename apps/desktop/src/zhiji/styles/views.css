@@ -7,24 +7,8 @@
 }
 
 /* 极简首页：单栏（去掉统计卡 / 双栏，仅日期标题 + 新建 + 最近列表） */
-.home-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--space-5);
-}
 
 /* 首页 hero：日期/问候标题 + 主操作 */
-.home-hero {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-}
-.home-hero-text h2 { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-strong); }
-.home-hero-text p { margin: 4px 0 0; color: var(--text-faint); font-size: 13px; }
-.home-hero-actions { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 
 /* 最近会议按相对日期分组（今天 / 昨天 / 更早） */
 .day-sep {
@@ -35,9 +19,6 @@
   color: var(--text-faint);
   background: var(--bg-surface);
 }
-
-.recent-panel { grid-column: span 1; }
-.recent-panel-full { grid-column: 1 / -1; }
 
 /* 状态圆点（替代状态文字：绿=完成 / 橙=进行中 / 灰=待处理，hover 出说明） */
 .status-dot {
@@ -61,48 +42,10 @@
   color: var(--text-muted);
   font-size: 12px;
 }
-.meeting-meta .status-badge { margin-left: 0; }
-
-.meeting-item-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-top: 4px;
-  flex-wrap: wrap;
-}
-.duration-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 8px;
-  border-radius: var(--radius-pill);
-  color: var(--text-muted);
-  background: var(--bg-inset);
-  font-size: 10px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
 
 /* 说话人头像组 */
-.avatar-stack { display: inline-flex; align-items: center; }
-.avatar-stack .avatar { margin-left: -6px; border: 2px solid var(--bg-surface); }
-.avatar-stack .avatar:first-child { margin-left: 0; }
-.avatar-stack .avatar-more {
-  background: var(--text-disabled);
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  color: white;
-  font-size: 10px;
-  font-weight: 700;
-  margin-left: -6px;
-  border: 2px solid var(--bg-surface);
-}
 
 /* —— 笔记视图 —— */
-.note-editor { display: flex; flex-direction: column; }
 
 /* —— 任务视图 —— */
 .tasks-page { max-width: 900px; }
@@ -126,56 +69,9 @@
   text-transform: uppercase;
   border-bottom: 1px solid var(--border-subtle);
 }
-.settings-section-title:first-child, .settings-group > .settings-section-title:first-child { margin-top: 0; }
-
-.settings-hero {
-  display: flex;
-  gap: var(--space-4);
-  align-items: center;
-  padding: var(--space-6) var(--space-8);
-  border-radius: var(--radius-lg);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-xs);
-}
-.settings-hero::after { display: none; } /* 去掉装饰光斑 */
-.settings-hero > * { position: relative; z-index: 1; }
-.settings-hero h2, .settings-card h3 { margin: 0; }
-.settings-hero h2 { color: var(--text-strong); font-size: 16px; font-weight: 600; }
-.settings-hero p, .settings-card p { margin: var(--space-2) 0 0; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
-.settings-hero .round-icon {
-  background: var(--accent-subtle);
-  color: var(--accent-text);
-  width: 40px;
-  height: 40px;
-}
-
-.settings-tabs {
-  display: flex;
-  gap: var(--space-1);
-  padding: var(--space-1);
-  background: var(--bg-inset, var(--bg-secondary));
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-}
-.settings-tab {
-  flex: 1;
-  padding: var(--space-2) var(--space-3);
-  border: none;
-  background: none;
-  border-radius: var(--radius-md, 8px);
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background var(--dur-fast, 0.15s) var(--ease-out), color var(--dur-fast, 0.15s) var(--ease-out);
-}
-.settings-tab:hover { color: var(--text-strong); }
-.settings-tab.active {
-  background: var(--bg-surface);
-  color: var(--accent-text, var(--text-strong));
-  box-shadow: var(--shadow-xs);
-}
+.settings-section-title:first-child { margin-top: 0; } /* 去掉装饰光斑 */
+.settings-card h3 { margin: 0; }
+.settings-card p { margin: var(--space-2) 0 0; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
 
 .settings-card {
   display: flex;
@@ -298,28 +194,6 @@
 .runtime-warning { color: var(--warning-fg); font-size: 11px; }
 
 /* —— 转写引擎切换 —— */
-.engine-switch { display: flex; gap: var(--space-2); }
-.engine-switch label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-pill);
-  color: var(--text-muted);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all var(--dur-fast) var(--ease-out);
-  white-space: nowrap;
-}
-.engine-switch label.active {
-  border-color: var(--accent);
-  background: var(--accent-subtle);
-  color: var(--accent-text);
-  font-weight: 600;
-}
-.engine-switch input[type="radio"] { accent-color: var(--accent); margin: 0; }
-.ai-settings > .engine-switch { grid-column: 1 / -1; margin-top: var(--space-3); }
 .ai-settings > .runtime-warning { grid-column: 1 / -1; margin-top: var(--space-2); }
 .ai-grid select {
   width: 100%;
@@ -533,35 +407,18 @@
 }
 
 /* —— 双栏：笔记独立区（宽屏显示；窄屏隐藏，改由「笔记」Tab 承载，见 @media）—— */
-.tab-item.tab-notes { display: none; }
 
 /* =================== 窗口尺寸响应式断点 =================== */
 
 /* md（≤1080）：会议双栏上下堆叠；AI 设置 2 列 */
 @media (max-width: 1080px) {
-  .meeting-dual { grid-template-columns: 1fr; }
-  .my-notes-pane { position: static; }
   .ai-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settings-layout { grid-template-columns: 200px minmax(0, 1fr); }
 }
 
 /* sm（≤760）：会议主从单栏互斥 + 双栏转顶层 Tab + 首页单栏 */
 @media (max-width: 760px) {
-  .split-layout {
-    grid-template-columns: 1fr;
-    min-height: calc(100vh - 148px);
-  }
-  .list-pane { display: block; }
-  .editor-pane { display: none; }
-  .split-layout.has-meeting .list-pane { display: none; }
-  .split-layout.has-meeting .editor-pane { display: block; }
   .back-to-list { display: inline-flex; }
-
-  .my-notes-pane { display: none; }
-  .tab-item.tab-notes { display: inline-flex; }
-
-  .home-grid { grid-template-columns: 1fr; }
-  .stats-row { grid-template-columns: 1fr; }
   .ai-grid { grid-template-columns: 1fr; }
   .settings-card { flex-direction: column; align-items: stretch; gap: var(--space-3); }
   .settings-layout { grid-template-columns: 1fr; }
@@ -708,7 +565,17 @@
 .meeting-journey-steps .current i { border-color: var(--accent); color: var(--accent-text); box-shadow: 0 0 0 4px var(--accent-subtle); }
 .meeting-journey-steps .done span, .meeting-journey-steps .current span { color: var(--text-default); font-weight: 650; }
 .meeting-journey-actions { display: flex; gap: var(--space-2); justify-content: flex-end; }
-.meeting-preflight { margin-top: var(--space-3); }
+/* 会议已整理完成：四个步骤圆点不再提供信息，压成一行，把纵向空间让给正文 */
+.meeting-journey-card.is-complete {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-5);
+}
+.journey-complete-copy { display: flex; align-items: center; gap: var(--space-2); min-width: 0; flex-wrap: wrap; }
+.journey-complete-copy > svg { flex: none; color: var(--accent); }
+.journey-complete-copy strong { color: var(--text-strong); font-size: 13px; }
+.journey-complete-copy small { color: var(--text-muted); font-size: 11px; }
+.meeting-context { margin-top: var(--space-3); }
 .meeting-review-tools { margin-top: var(--space-3); }
 .meeting-review-tools .ai-workflow { margin-bottom: var(--space-3); }
 .meeting-workspace-tabs button { display: flex; align-items: center; justify-content: center; gap: var(--space-2); }
@@ -741,8 +608,6 @@
 
 /* xs（≤520）：信息条纵向堆叠 */
 @media (max-width: 520px) {
-  .home-quickbar { justify-content: stretch; }
-  .home-quickbar .primary-button { width: 100%; }
   .settings-status-grid,
   .settings-data-summary { grid-template-columns: 1fr; }
   .settings-data-summary span + span { border-left: 0; border-top: 1px solid var(--border-subtle); }
@@ -771,17 +636,13 @@
   .meeting-detail-header { min-height: 68px; padding: var(--space-3) var(--space-4); }
   .meeting-title-block .title-input { font-size: 17px; }
   .meeting-title-block .meeting-meta > span:last-child { display: none; }
-  .meeting-preflight,
-  .meeting-review-tools,
-  .meeting-workspace,
-  .meeting-processing-banner { width: min(calc(100% - 24px), 1120px); }
-  .meeting-workspace .my-notes-pane { display: flex; }
-  .preflight-heading,
+  .meeting-context, .meeting-review-tools, .meeting-workspace { width: min(calc(100% - 24px), 1120px); }
+  .meeting-journey-card.is-complete { grid-template-columns: 1fr; padding: var(--space-3) var(--space-4); }
+  .meeting-journey-card.is-complete .meeting-journey-actions { justify-content: flex-start; }
   .live-stage-toolbar { align-items: stretch; flex-direction: column; }
-  .meeting-capture-actions,
   .live-stage-actions { justify-content: flex-end; }
   .transcript-quality-strip { grid-template-columns: 1fr; }
-  .speaker-row { grid-template-columns: 68px 88px minmax(0, 1fr); gap: var(--space-2); }
+  .speaker-meta { max-width: 84px; }
   .live-stage { padding: var(--space-3); }
 }
 
@@ -789,15 +650,11 @@
   .meeting-detail-header { gap: var(--space-2); }
   .meeting-header-actions .autosave-hint,
   .meeting-header-actions > .icon-btn { display: none; }
-  .meeting-capture-actions > button,
   .live-stage-actions > button { flex: 1; justify-content: center; }
-  .meeting-progress-strip { overflow-x: auto; }
-  .meeting-progress-strip > b { min-width: 14px; }
-  .speaker-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .speaker-row > .popover-anchor { grid-column: 1; }
-  .speaker-row > .speaker-seek { grid-column: 2; text-align: right; }
-  .speaker-row > .speaker-row-content,
-  .speaker-row > .speaker-inline-edit { grid-column: 1 / -1; }
+  /* 极窄屏：标签回到正文上方一行，时间戳常显，避免挤压正文。 */
+  .speaker-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+  .speaker-meta { display: flex; align-items: center; gap: var(--space-2); max-width: none; }
+  .speaker-seek { opacity: 1; }
   .meeting-workspace-tabs button { padding: 0 var(--space-3); }
   .live-session-identity { flex-wrap: wrap; }
   .live-session-identity time { margin-left: auto; }

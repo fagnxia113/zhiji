@@ -10,7 +10,18 @@ export function installFixture({ failStartup = false, failSettings = false, empt
     decisions: finished ? "周五前完成方案评审。" : "", speakerSegments: "[]", speakerNames: "{}", audioPath: null,
     updatedAt: `${date(offset)}T11:00:00+08:00`, context: "对齐本周工作重点和交付安排", notes: "客户希望缩短首次配置时间。",
   });
-  const workspace = { meetings: empty ? [] : [meeting("m1", "产品体验优化 · 周例会", 0, false), meeting("m2", "客户访谈 · 工作流与使用反馈", -1, true), meeting("m3", "九月项目推进与交付计划", -3, true)], tasks: empty ? [] : [
+  // 已整理完成的会议额外带上说话人分段与一张 Markdown 表格：
+  // 时间线只在有分段时渲染，表格用来回归 GFM 表格的滚动容器与样式。
+  const withTranscriptDetail = (m) => ({
+    ...m,
+    speakerSegments: JSON.stringify([
+      { startMs: 0, endMs: 4200, speakerId: 0, speaker: "说话人1", text: "我们本周先完成客户反馈的分类。" },
+      { startMs: 4200, endMs: 9600, speakerId: 1, speaker: "说话人2", text: "周五前提交产品方案，重点优化首次使用流程。" },
+    ]),
+    speakerNames: JSON.stringify({ "0": "林晨", "1": "陈雨" }),
+    minutes: "## 会议概要\n本周围绕客户反馈与产品体验开展工作。\n\n## 行动项\n\n| 负责人 | 事项 | 截止 |\n| --- | --- | --- |\n| 林晨 | 整理客户访谈要点 | 已逾期 |\n| 陈雨 | 提交首次使用流程方案 | 本周五 |\n\n## 关键结论\n优先完善首次使用流程，下周安排验证。",
+  });
+  const workspace = { meetings: empty ? [] : [meeting("m1", "产品体验优化 · 周例会", 0, false), withTranscriptDetail(meeting("m2", "客户访谈 · 工作流与使用反馈", -1, true)), meeting("m3", "九月项目推进与交付计划", -3, true)], tasks: empty ? [] : [
     { id: "t1", title: "整理客户访谈要点", sourceType: "meeting", sourceId: "m2", completed: false, dueDate: date(-1), createdAt: `${date(-3)}T12:00:00+08:00`, owner: "林晨" },
     { id: "t2", title: "提交首次使用流程方案", sourceType: "meeting", sourceId: "m1", completed: false, dueDate: date(), createdAt: `${date()}T12:00:00+08:00`, owner: "陈雨" },
     { id: "t3", title: "安排下周项目复盘", sourceType: null, sourceId: null, completed: false, dueDate: date(3), createdAt: `${date()}T12:00:00+08:00`, owner: "" },

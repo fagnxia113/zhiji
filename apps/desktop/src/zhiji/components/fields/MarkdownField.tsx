@@ -2,8 +2,9 @@ import { useMemo, useState } from "react";
 import { renderMarkdown } from "./markdown";
 
 type MarkdownFieldProps = {
-  label: string;
-  hint: string;
+  // 标题可省略：外层 pane-head / section-heading 已经给出了同一标题时，不再重复渲染，只留编辑/预览开关。
+  label?: string;
+  hint?: string;
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
@@ -15,11 +16,13 @@ export function MarkdownField({ label, hint, value, onChange, placeholder }: Mar
   const html = useMemo(() => renderMarkdown(value), [value]);
   return (
     <div className="editor-field markdown-field">
-      <div className="editor-field-head">
-        <div>
-          <h3>{label}</h3>
-          <small>{hint}</small>
-        </div>
+      <div className={`editor-field-head${label || hint ? "" : " is-bare"}`}>
+        {(label || hint) && (
+          <div>
+            {label && <h3>{label}</h3>}
+            {hint && <small>{hint}</small>}
+          </div>
+        )}
         <div className="md-toggle" role="group" aria-label="编辑或预览">
           <button
             type="button"
