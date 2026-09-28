@@ -2335,7 +2335,6 @@ function Home({
         <div className="home-command-copy">
           <span className="home-date-label">{todayFullDate()}</span>
           <h2>{greeting()}，让今天的工作更有条理。</h2>
-          <p>记录讨论，整理思路，跟进行动。从一场会议到一周成果，在你的个人工作台里有序推进。</p>
         </div>
         <div className="home-command-actions">
           <button className="primary-button record-cta" onClick={onQuickRecord}>

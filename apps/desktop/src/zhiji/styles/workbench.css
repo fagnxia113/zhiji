@@ -42,17 +42,19 @@
 .home-dashboard { max-width: 1440px; margin-inline: auto; gap: 20px; }
 .home-command-card { min-height: 184px; border-radius: 14px; box-shadow: none; background: linear-gradient(115deg, var(--accent-subtle), var(--bg-surface) 78%); border: 1px solid var(--border-subtle); padding: 28px 30px; }
 .home-command-copy h2 { font-size: clamp(22px, 2vw, 29px); line-height: 1.45; }
-.home-command-copy p { max-width: 540px; }
 .home-command-actions .record-cta { min-height: 42px; }
 .workbench-metrics { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .workbench-metrics > button { display: grid; gap: 17px; padding: 20px; text-align: left; color: var(--text-strong); background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 12px; transition: border-color .15s, transform .15s; }
 .workbench-metrics > button:hover { border-color: var(--accent); transform: translateY(-2px); }
-.workbench-metrics span { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 12px; }
-.workbench-metrics span svg { color: var(--accent-text); }
-.workbench-metrics strong { font-size: 30px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1; }
+/* 指标行：限定到按钮的直接子 span，避免波及 <strong> 内的数值 span */
+.workbench-metrics > button > span { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 12px; }
+.workbench-metrics > button > span svg { color: var(--accent-text); flex: none; }
+.metric-note { margin-left: auto; font-size: 11px; color: var(--text-faint); font-weight: 400; }
+.workbench-metrics strong { display: flex; align-items: center; justify-content: space-between; font-size: 30px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1; }
+.workbench-metrics strong > span { display: inline-flex; align-items: baseline; }
+.workbench-metrics strong > svg { color: var(--text-faint); flex: none; }
 .workbench-metrics strong small { margin-left: 8px; font-size: 12px; color: var(--text-faint); font-weight: 400; }
-.workbench-metrics em { display: flex; align-items: center; justify-content: space-between; font-style: normal; font-size: 11px; color: var(--text-faint); }
-.workbench-metrics .weekly-shortcut strong { display: flex; justify-content: space-between; align-items: center; font-size: 21px; color: var(--accent-text); }
+.workbench-metrics .weekly-shortcut strong { font-size: 21px; color: var(--accent-text); }
 .workbench-setup { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 16px 20px; border: 1px solid var(--border-subtle); background: var(--bg-surface); border-radius: 10px; }
 .workbench-setup > svg { flex: none; color: var(--accent-text); }
 .workbench-setup > div { flex: 1; min-width: 0; }
@@ -78,7 +80,6 @@
   .icon-rail { padding-inline: 10px; }
   .main-content { padding: 24px; }
   .workbench-metrics > button { padding: 16px; }
-  .workbench-metrics em { font-size: 10px; }
   .rail-local-status small { display: none; }
 }
 @media (max-width: 900px) {
@@ -98,7 +99,6 @@
   .home-command-card { padding: 22px; }
   .workbench-metrics { gap: 10px; }
   .workbench-metrics > button { padding: 14px; }
-  .workbench-metrics em { line-height: 1.5; }
   .workbench-setup { flex-wrap: wrap; padding: 16px; }
   .workbench-setup > div { flex-basis: calc(100% - 40px); }
 }

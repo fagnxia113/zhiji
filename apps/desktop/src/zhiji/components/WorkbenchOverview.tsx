@@ -19,10 +19,11 @@ export function WorkbenchOverview({ workspace, aiReady, transcriptionReady, onMe
   const pending = workspace.tasks.filter(t => !t.completed).length;
   return <>
     <section className="workbench-metrics" aria-label="工作概览">
-      <button onClick={onMeetings}><span><CalendarRange size={17} />本周会议</span><strong>{weekMeetings.length}<small>场</small></strong><em>从 {localDateKey(monday).slice(5).replace("-", "/")} 开始<ArrowUpRight size={15} /></em></button>
-      <button onClick={onMeetings}><span><FileText size={17} />已整理纪要</span><strong>{completed}<small>篇</small></strong><em>让每次讨论都有据可查<ArrowUpRight size={15} /></em></button>
-      <button onClick={onTasks}><span><CheckCircle2 size={17} />待办事项</span><strong>{pending}<small>项</small></strong><em>把决定变成下一步行动<ArrowUpRight size={15} /></em></button>
-      <button className="weekly-shortcut" onClick={onReport}><span><Sparkles size={17} />每周回顾</span><strong>生成周报<ArrowUpRight size={20} /></strong><em>融合会议、会外记录与行动进展</em></button>
+      {/* 每张卡只保留「指标 + 数值 + 可点箭头」三层，装饰性副标题不再占一行 */}
+      <button onClick={onMeetings}><span><CalendarRange size={17} />本周会议<small className="metric-note">从 {localDateKey(monday).slice(5).replace("-", "/")}</small></span><strong><span>{weekMeetings.length}<small>场</small></span><ArrowUpRight size={17} /></strong></button>
+      <button onClick={onMeetings}><span><FileText size={17} />已整理纪要</span><strong><span>{completed}<small>篇</small></span><ArrowUpRight size={17} /></strong></button>
+      <button onClick={onTasks}><span><CheckCircle2 size={17} />待办事项</span><strong><span>{pending}<small>项</small></span><ArrowUpRight size={17} /></strong></button>
+      <button className="weekly-shortcut" onClick={onReport}><span><Sparkles size={17} />每周回顾</span><strong><span>生成周报</span><ArrowUpRight size={17} /></strong></button>
     </section>
     {(!aiReady || !transcriptionReady) && <section className="workbench-setup" aria-label="工作台配置状态">
       <ShieldCheck size={22} />
