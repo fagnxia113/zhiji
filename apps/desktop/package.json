@@ -18,15 +18,11 @@
     "@tauri-apps/plugin-dialog": "^2.7.2",
     "@tauri-apps/plugin-process": "^2",
     "@tauri-apps/plugin-updater": "^2.11.0",
-    "@tiptap/extension-placeholder": "^2",
-    "@tiptap/react": "^2",
-    "@tiptap/starter-kit": "^2",
     "dompurify": "^3.2.4",
     "lucide-react": "^0.544.0",
     "marked": "^12.0.2",
     "react": "^19.2.5",
-    "react-dom": "^19.2.5",
-    "tiptap-markdown": "^0.8"
+    "react-dom": "^19.2.5"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1",
