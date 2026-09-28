@@ -84,6 +84,45 @@
 .icon-btn.icon-danger { color: var(--danger-fg); }
 .icon-btn.icon-danger:hover:not(:disabled) { background: var(--danger-bg); color: var(--danger); }
 
+/* —— 图标提示气泡（纯 CSS 显隐，禁用态同样生效）—— */
+.tooltip-anchor { position: relative; display: inline-flex; }
+.tooltip-bubble {
+  position: absolute;
+  z-index: 60;
+  left: 50%;
+  width: max-content;
+  max-width: 240px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--tooltip-bg);
+  color: var(--tooltip-fg);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+  text-align: center;
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate(-50%, 2px);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), visibility var(--dur-fast);
+}
+.tooltip-anchor.top > .tooltip-bubble { bottom: calc(100% + 8px); }
+.tooltip-anchor.bottom > .tooltip-bubble { top: calc(100% + 8px); }
+/* 靠右边缘的触发器改为对右侧对齐，避免气泡被视口裁掉 */
+.tooltip-anchor.end > .tooltip-bubble { left: auto; right: 0; transform: translate(0, 2px); }
+.tooltip-anchor:hover > .tooltip-bubble,
+.tooltip-anchor:focus-within > .tooltip-bubble {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+.tooltip-anchor.end:hover > .tooltip-bubble,
+.tooltip-anchor.end:focus-within > .tooltip-bubble { transform: translate(0, 0); }
+@media (prefers-reduced-motion: reduce) {
+  .tooltip-bubble { transition: none; }
+}
+
 .record-button {
   color: var(--accent-text);
   background: var(--accent-subtle);
@@ -501,6 +540,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   font-size: 10px;
 }
 button.task-source:hover:not(:disabled) { color: var(--accent-text); background: var(--accent-subtle); }
+/* 纯图标形态：收进提示气泡，尺寸向 icon-btn 看齐 */
+button.task-source.icon-only { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; }
 .task-dashboard { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--space-2); margin: 0 0 var(--space-3); }
 .task-dashboard > button { display: grid; gap: 2px; padding: var(--space-3) var(--space-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); color: var(--text-muted); background: var(--bg-surface); text-align: left; }
 .task-dashboard > button strong { color: var(--text-strong); font-size: 18px; font-variant-numeric: tabular-nums; }
@@ -1126,6 +1167,8 @@ button.task-source:hover:not(:disabled) { color: var(--accent-text); background:
 }
 .pane-action:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--border-default); }
 .pane-action:disabled { opacity: 0.5; cursor: not-allowed; }
+/* 纯图标形态：文字收进提示气泡，尺寸与图标按钮对齐（32×32） */
+.pane-action.icon-only { gap: 0; padding: 0; width: 32px; height: 32px; justify-content: center; }
 .pane-actions,
 .section-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
 .pane-action.secondary { color: var(--text-muted); background: transparent; }

@@ -1,8 +1,8 @@
-import { CalendarDays, Check, Pencil, Trash2, X } from "lucide-react";
+import { ArrowUpRight, CalendarDays, Check, Pencil, Trash2, X } from "lucide-react";
 import { useRef, useState } from "react";
 import type { Task } from "../../types";
 import { taskDueState } from "../../workflow";
-import { IconButton } from "../ui";
+import { IconButton, Tooltip } from "../ui";
 
 export function formatDue(d: string) {
   const parts = d.split("-");
@@ -98,9 +98,11 @@ export function TaskRow({
       {task.owner?.trim() && <span className="task-owner" title={`负责人：${task.owner}`}>{task.owner}</span>}
       {task.sourceType && (
         onOpenSource ? (
-          <button className="task-source" onClick={() => onOpenSource(task)} disabled={!task.sourceId} title="打开来源">
-            {task.sourceType === "meeting" ? "查看会议" : "查看笔记"}
-          </button>
+          <Tooltip label={task.sourceType === "meeting" ? "打开来源会议" : "打开来源笔记"}>
+            <button className="task-source icon-only" onClick={() => onOpenSource(task)} disabled={!task.sourceId} aria-label={task.sourceType === "meeting" ? "查看会议" : "查看笔记"}>
+              <ArrowUpRight size={14} />
+            </button>
+          </Tooltip>
         ) : <small className="task-source">{task.sourceType === "meeting" ? "会议" : "笔记"}</small>
       )}
       <IconButton icon={Pencil} label="编辑" onClick={startEdit} />

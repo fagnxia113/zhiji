@@ -99,6 +99,7 @@ import {
   TaskRow,
   Tasks,
   TitleBar,
+  Tooltip,
   UpdateModal,
   WeeklyReportModal,
 } from "./components";
@@ -2633,13 +2634,15 @@ function Meetings({
         </div>
         {meeting.transcript.trim() && (
           <div className="pane-actions">
-            <button
-              className="pane-action secondary"
-              onClick={() => onCopyText(meeting.transcript, "原文")}
-              title="复制完整原文到剪贴板"
-            >
-              <Copy size={14} />复制原文
-            </button>
+            <Tooltip label="复制完整原文到剪贴板">
+              <button
+                className="pane-action secondary icon-only"
+                aria-label="复制原文"
+                onClick={() => onCopyText(meeting.transcript, "原文")}
+              >
+                <Copy size={15} />
+              </button>
+            </Tooltip>
             <span className="count-pill">约 {meeting.transcript.trim().length} 字</span>
           </div>
         )}
@@ -2700,23 +2703,27 @@ function Meetings({
         </div>
         <div className="pane-actions">
           {meeting.minutes.trim() && (
-            <button
-              className="pane-action secondary"
-              onClick={() => onCopyText(stripHtml(meeting.minutes), "智能纪要")}
-              title="复制智能纪要全文到剪贴板"
-            >
-              <Copy size={14} />复制纪要
-            </button>
+            <Tooltip label="复制智能纪要全文到剪贴板">
+              <button
+                className="pane-action secondary icon-only"
+                aria-label="复制纪要"
+                onClick={() => onCopyText(stripHtml(meeting.minutes), "智能纪要")}
+              >
+                <Copy size={15} />
+              </button>
+            </Tooltip>
           )}
           {meeting.minutes.trim() && (
-            <button
-              className="pane-action secondary"
-              onClick={() => onRegenerateSection("minutes")}
-              disabled={!aiConfigured || !meeting.transcript.trim() || busy}
-              title="只重新生成智能纪要，保留决策和待办"
-            >
-              <RefreshCw size={14} />只重写纪要
-            </button>
+            <Tooltip label="只重新生成智能纪要，保留决策和待办">
+              <button
+                className="pane-action secondary icon-only"
+                aria-label="只重写纪要"
+                onClick={() => onRegenerateSection("minutes")}
+                disabled={!aiConfigured || !meeting.transcript.trim() || busy}
+              >
+                <RefreshCw size={15} />
+              </button>
+            </Tooltip>
           )}
         </div>
       </div>
@@ -2748,9 +2755,11 @@ function Meetings({
           <div>
             <div className="section-heading">
               <h3>决策与共识</h3>
-              <button className="pane-action secondary" onClick={() => onRegenerateSection("decisions")} disabled={!aiConfigured || !meeting.transcript.trim() || busy}>
-                <RefreshCw size={13} />只重提决策
-              </button>
+              <Tooltip label="只重新提取决策与共识，保留纪要和待办">
+                <button className="pane-action secondary icon-only" aria-label="只重提决策" onClick={() => onRegenerateSection("decisions")} disabled={!aiConfigured || !meeting.transcript.trim() || busy}>
+                  <RefreshCw size={14} />
+                </button>
+              </Tooltip>
             </div>
             <MarkdownField
               hint="只保留明确决定；不确定项会标记待确认"
@@ -2763,10 +2772,14 @@ function Meetings({
             <div className="section-heading">
               <h3>本会议待办</h3>
               <div className="section-actions">
-                <button className="pane-action secondary" onClick={() => onRegenerateSection("tasks")} disabled={!aiConfigured || !meeting.transcript.trim() || busy}>
-                  <RefreshCw size={13} />重新提取
-                </button>
-                <button className="icon-btn" title="添加待办" onClick={() => setTaskComposing((value) => !value)}><Plus size={14} /></button>
+                <Tooltip label="只重新提取本会议的行动项">
+                  <button className="pane-action secondary icon-only" aria-label="重新提取" onClick={() => onRegenerateSection("tasks")} disabled={!aiConfigured || !meeting.transcript.trim() || busy}>
+                    <RefreshCw size={14} />
+                  </button>
+                </Tooltip>
+                <Tooltip label="添加待办">
+                  <button className="icon-btn" aria-label="添加待办" onClick={() => setTaskComposing((value) => !value)}><Plus size={14} /></button>
+                </Tooltip>
               </div>
             </div>
             {taskComposing && (
