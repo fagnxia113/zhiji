@@ -3,7 +3,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { SpeakerSegment } from "../../types";
 import { speakerDisplayName } from "../../types";
 import { duration } from "../../format";
-import { Popover } from "../ui";
+import { Popover, Tooltip } from "../ui";
 
 // 说话人时间线：逐段展示转写，支持按说话人/内容筛选、点击跳转音频、改名、内联修正文字。
 // 为配合音频联动，startMs/endMs 为毫秒；onSeek 向上抛毫秒，由父组件交给 AudioPlayer。
@@ -181,16 +181,18 @@ export function SpeakerTimeline({
             ) : (
               <div className="speaker-row-content">
                 <p onClick={() => onSeek(item.startMs)}>{item.text}</p>
-                <button
-                  className="icon-btn"
-                  title="修改这段文字"
-                  onClick={() => {
-                    setEditingIndex(sourceIndex);
-                    setEditingText(item.text);
-                  }}
-                >
-                  <Pencil size={13} />
-                </button>
+                <Tooltip label="修改这段文字">
+                  <button
+                    className="icon-btn"
+                    aria-label="修改这段文字"
+                    onClick={() => {
+                      setEditingIndex(sourceIndex);
+                      setEditingText(item.text);
+                    }}
+                  >
+                    <Pencil size={13} />
+                  </button>
+                </Tooltip>
               </div>
             )}
           </div>

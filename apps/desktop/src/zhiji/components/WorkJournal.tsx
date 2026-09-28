@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Archive, ArrowUpRight, Check, FolderPlus, Pencil, Plus, Save } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowUpRight, Check, FolderPlus, Pencil, Plus, Save } from "lucide-react";
 import { kinds, statuses, useWorkbench, workbenchCall, type WorkEntry } from "../workbench";
 import type { Workspace } from "../types";
 import { localDateKey } from "../workflow";
+import { IconButton, Tooltip } from "./ui";
 
 const draftKey = "zhiji:work-entry-draft";
 const fresh = () => ({ id: crypto.randomUUID() as string, content: "", kind: "progress", status: "in_progress", occurredOn: localDateKey(new Date()), projectId: "", sourceLabel: "随手记" });
@@ -61,13 +62,29 @@ export function WorkJournal({ workspace, compact = false, onOpen, onMeeting }: {
       <form className="project-create" onSubmit={e => { e.preventDefault(); void perform(async () => { await workbenchCall("save_project", { id: crypto.randomUUID(), name: projectName, archived: false }); setProjectName(""); }); }}>
         <FolderPlus size={16} /><input aria-label="新项目名称" value={projectName} onChange={e => setProjectName(e.target.value)} maxLength={80} placeholder="新建项目，例如：客户交付" disabled={busy} />
         <button className="secondary-button compact-button" disabled={busy || !projectName.trim()}><Plus size={14} />创建项目</button>
-        {filter && <button type="button" className="ghost-button" disabled={busy} onClick={() => void perform(async () => { const p = data.projects.find(p => p.id === filter); if (p) await workbenchCall("save_project", { ...p, archived: !p.archived }); })}><Archive size={14} />{data.projects.find(p => p.id === filter)?.archived ? "恢复项目" : "归档项目"}</button>}
+        {filter && (() => {
+          const project = data.projects.find(p => p.id === filter);
+          const archived = Boolean(project?.archived);
+          return (
+            <Tooltip label={archived ? "恢复该项目，重新计为进行中" : "归档该项目，保留全部记录"}>
+              <button
+                type="button"
+                className="ghost-button icon-only"
+                aria-label={archived ? "恢复项目" : "归档项目"}
+                disabled={busy}
+                onClick={() => void perform(async () => { if (project) await workbenchCall("save_project", { ...project, archived: !archived }); })}
+              >
+                {archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}
+              </button>
+            </Tooltip>
+          );
+        })()}
       </form>
     </>}
     <div className="work-entry-list">
       {shown.slice(0, compact ? 3 : shown.length).map(entry => <article className="work-entry" key={entry.id}>
         <div className="work-entry-meta"><time>{entry.occurredOn}</time><span>{kinds[entry.kind]}</span><span className={`work-status ${entry.status}`}>{statuses[entry.status]}</span><span>{data.projects.find(p => p.id === entry.projectId)?.name || "未归属项目"}</span></div>
-        <p>{entry.content}</p><footer><small>{entry.sourceLabel || "随手记"}</small><button className="ghost-button" disabled={busy} aria-label={`编辑记录：${entry.content.slice(0, 30)}`} onClick={() => selectEntry(entry)}><Pencil size={13} />编辑</button></footer>
+        <p>{entry.content}</p><footer><small>{entry.sourceLabel || "随手记"}</small><IconButton icon={Pencil} size={14} label={`编辑记录：${entry.content.slice(0, 30)}`} disabled={busy} onClick={() => selectEntry(entry)} /></footer>
       </article>)}
       {!shown.length && <p className="journal-empty">{loading ? "正在读取记录…" : "还没有符合条件的记录。完成一件事后，记下一句话即可。"}</p>}
     </div>

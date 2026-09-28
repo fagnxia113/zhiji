@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { Copy, Plug, RefreshCw } from "lucide-react";
 import { useWorkbench } from "../../workbench";
+import { Tooltip } from "../ui";
 
 type Access = { running: boolean; url?: string; allowCapture?: boolean; projectId?: string | null; mcpConfig?: object; calls?: { at: string; action: string; ok: boolean }[] };
 export function LocalAccessPanel() {
@@ -34,7 +35,7 @@ export function LocalAccessPanel() {
     {status.running && <>
       <div className="access-card"><h3>连接 AI 客户端</h3><p>复制配置到支持 stdio MCP 的本机客户端。配置包含当前令牌，请勿分享。接入本地资料后，客户端可能将查询结果发送给其模型服务。</p><button className="secondary-button compact-button" onClick={() => void copy(JSON.stringify(status.mcpConfig, null, 2))}><Copy size={14} />复制 MCP 配置</button><p className="capture-hint">纯云端客户端无法直接访问本机端口。停止或重新开启服务后需更新配置。</p></div>
       <div className="access-card"><h3>通过 API 调用</h3><pre>{`POST ${status.url}/v1/workbench/search_work\nAuthorization: Bearer <MCP 配置中的 ZHIJI_API_TOKEN>\nContent-Type: application/json\n\n{"query":"客户","projectId":"可选项目 ID"}`}</pre><p>读取：list_projects、search_work、get_project_context、list_followups、report_material。写入：capture_work（需开启）。API 与界面共用资料库；不会自动调用云模型。</p></div>
-      <div className="access-card"><div className="journal-heading"><h3>最近调用</h3><button className="ghost-button" onClick={() => void refresh()}><RefreshCw size={14} />刷新</button></div>{status.calls?.length ? status.calls.slice().reverse().map((call, i) => <p key={i}>{new Date(call.at).toLocaleTimeString()} · {call.action} · {call.ok ? "成功" : "未完成"}</p>) : <p>尚无调用。这里只记录操作和结果，不记录正文或令牌。</p>}</div>
+      <div className="access-card"><div className="journal-heading"><h3>最近调用</h3><Tooltip label="重新读取最近的调用记录"><button className="ghost-button icon-only" aria-label="刷新最近调用" onClick={() => void refresh()}><RefreshCw size={14} /></button></Tooltip></div>{status.calls?.length ? status.calls.slice().reverse().map((call, i) => <p key={i}>{new Date(call.at).toLocaleTimeString()} · {call.action} · {call.ok ? "成功" : "未完成"}</p>) : <p>尚无调用。这里只记录操作和结果，不记录正文或令牌。</p>}</div>
     </>}
   </section>;
 }

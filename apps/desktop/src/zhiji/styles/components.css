@@ -43,6 +43,9 @@
   background: var(--bg-inset);
   color: var(--text-strong);
 }
+/* 纯图标形态：文字收进提示气泡 */
+.ghost-button.icon-only { gap: 0; width: 30px; height: 30px; padding: 0; justify-content: center; }
+.secondary-button.icon-only { gap: 0; width: 30px; height: 30px; padding: 0; justify-content: center; }
 .record-cta {
   font-size: 14px;
   padding: var(--space-3, 12px) var(--space-4, 16px);
@@ -85,8 +88,10 @@
 .icon-btn.icon-danger:hover:not(:disabled) { background: var(--danger-bg); color: var(--danger); }
 
 /* —— 图标提示气泡（纯 CSS 显隐，禁用态同样生效）—— */
-.tooltip-anchor { position: relative; display: inline-flex; }
+.tooltip-anchor { position: relative; display: inline-flex; flex: none; }
 .tooltip-bubble {
+  /* --tip-tx 决定水平对齐：居中 -50%、贴左/贴右为 0，由 Tooltip 测量后切换 */
+  --tip-tx: -50%;
   position: absolute;
   z-index: 60;
   left: 50%;
@@ -104,21 +109,20 @@
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transform: translate(-50%, 2px);
+  transform: translate(var(--tip-tx), 2px);
   transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), visibility var(--dur-fast);
 }
 .tooltip-anchor.top > .tooltip-bubble { bottom: calc(100% + 8px); }
 .tooltip-anchor.bottom > .tooltip-bubble { top: calc(100% + 8px); }
-/* 靠右边缘的触发器改为对右侧对齐，避免气泡被视口裁掉 */
-.tooltip-anchor.end > .tooltip-bubble { left: auto; right: 0; transform: translate(0, 2px); }
+/* 靠边触发器由 Tooltip 自动加上 start / end，避免气泡被视口裁掉 */
+.tooltip-anchor.start > .tooltip-bubble { --tip-tx: 0; left: 0; }
+.tooltip-anchor.end > .tooltip-bubble { --tip-tx: 0; left: auto; right: 0; }
 .tooltip-anchor:hover > .tooltip-bubble,
 .tooltip-anchor:focus-within > .tooltip-bubble {
   opacity: 1;
   visibility: visible;
-  transform: translate(-50%, 0);
+  transform: translate(var(--tip-tx), 0);
 }
-.tooltip-anchor.end:hover > .tooltip-bubble,
-.tooltip-anchor.end:focus-within > .tooltip-bubble { transform: translate(0, 0); }
 @media (prefers-reduced-motion: reduce) {
   .tooltip-bubble { transition: none; }
 }
@@ -792,9 +796,9 @@ button.task-source.icon-only { display: inline-flex; align-items: center; justif
 .speaker-seek:hover { color: var(--accent); }
 .speaker-row-content { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--space-2); }
 .speaker-row-content > p { margin: 0; color: var(--text-default); font-size: 12.5px; line-height: 1.65; cursor: pointer; }
-.speaker-row-content > .icon-btn { width: 26px; height: 26px; opacity: 0; }
-.speaker-row:hover .speaker-row-content > .icon-btn,
-.speaker-row-content > .icon-btn:focus-visible { opacity: 1; }
+.speaker-row-content .icon-btn { width: 26px; height: 26px; opacity: 0; }
+.speaker-row:hover .speaker-row-content .icon-btn,
+.speaker-row-content .icon-btn:focus-visible { opacity: 1; }
 .speaker-inline-edit { min-width: 0; display: grid; gap: var(--space-2); }
 .speaker-inline-edit textarea {
   width: 100%;

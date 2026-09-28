@@ -9,6 +9,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import type { OfflineInstallItem, OfflineInstallManifest } from "../../types";
+import { Tooltip } from "../ui";
 
 type Props = {
   manifest: OfflineInstallManifest;
@@ -140,15 +141,17 @@ function OfflineRow({
                 {shortLink(url)}
               </button>
             ))}
-            <button
-              type="button"
-              className="offline-copy"
-              disabled={busy}
-              onClick={() => onCopy(item.urls.join("\n"))}
-            >
-              <Copy size={13} />
-              复制链接
-            </button>
+            <Tooltip label="复制全部下载链接">
+              <button
+                type="button"
+                className="offline-copy icon-only"
+                aria-label="复制链接"
+                disabled={busy}
+                onClick={() => onCopy(item.urls.join("\n"))}
+              >
+                <Copy size={13} />
+              </button>
+            </Tooltip>
           </div>
         )}
       </div>

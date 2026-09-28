@@ -149,6 +149,7 @@
 }
 .offline-install-links a:hover, .offline-copy:hover { background: var(--bg-surface); }
 .offline-copy { font-family: inherit; }
+.offline-copy.icon-only { gap: 0; padding: 3px 6px; }
 
 .ai-grid {
   width: 100%;
@@ -649,7 +650,7 @@
 @media (max-width: 520px) {
   .meeting-detail-header { gap: var(--space-2); }
   .meeting-header-actions .autosave-hint,
-  .meeting-header-actions > .icon-btn { display: none; }
+  .meeting-header-actions .icon-btn { display: none; }
   .live-stage-actions > button { flex: 1; justify-content: center; }
   /* 极窄屏：标签回到正文上方一行，时间戳常显，避免挤压正文。 */
   .speaker-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
