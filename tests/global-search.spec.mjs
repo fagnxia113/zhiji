@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { installFixture } from "./workbench-fixture.mjs";
+await mkdir(new URL("../.tmp/ui-verification/", import.meta.url), { recursive: true });
 const browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || "chrome", headless: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, locale: "zh-CN", timezoneId: "Asia/Shanghai" });
 const page = await context.newPage(); const errors = [];
@@ -39,6 +40,9 @@ try {
   await box.press("ArrowUp");
   const lastIndex = (await options.count()) - 1;
   assert.equal(await box.getAttribute("aria-activedescendant"), `global-search-option-${lastIndex}`);
+  // 视觉凭据：结果面板打开且首项高亮
+  await box.press("ArrowDown");
+  await page.screenshot({ path: ".tmp/ui-verification/global-search-open.png", fullPage: true });
 
   // Escape 清空查询并收起面板
   await box.press("Escape");
@@ -69,9 +73,9 @@ try {
   await list.waitFor();
   assert.equal(await list.getByRole("option").count(), 1);
   await list.getByRole("option").first().click();
-  await page.getByRole("heading", { name: "待办", exact: true }).waitFor();  await list.waitFor({ state: "detached" });
+  await page.getByRole("heading", { name: "待办", exact: true }).waitFor();
+  await list.waitFor({ state: "detached" });
 
-  await mkdir(new URL("../.tmp/ui-verification/", import.meta.url), { recursive: true });
   assert.deepEqual(errors, []);
   console.log("PASS: global search combobox semantics, aria-controls/activedescendant, arrow-key highlight with wrap, Escape clear, outside-click dismiss keeping query, Enter opens meeting, click opens task view.");
 } finally { await browser.close(); }
