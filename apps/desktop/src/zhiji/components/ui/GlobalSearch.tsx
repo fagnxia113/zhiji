@@ -1,5 +1,5 @@
 import { CheckCircle2, FileText, Mic, Search } from "lucide-react";
-import { useMemo } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { Meeting, Task, Workspace } from "../../types";
 
 type SearchResult =
@@ -15,6 +15,10 @@ const MEETING_FIELDS: { key: "title" | "minutes" | "notes" | "context" | "transc
   { key: "context", label: "会前背景" },
   { key: "transcript", label: "转写" },
 ];
+
+// 全局只有一处搜索框，用固定 id 让 aria-controls / aria-activedescendant 与测试都可直接引用。
+const LIST_ID = "global-search-listbox";
+const optionId = (index: number) => `global-search-option-${index}`;
 
 function plainText(value: string) {
   return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -87,20 +91,9 @@ function meetingDateLabel(startedAt: string) {
   return date.replace(/-/g, "/");
 }
 
-export function GlobalSearch({
-  query,
-  workspace,
-  onOpenMeeting,
-  onOpenTasks,
-  onClose,
-}: {
-  query: string;
-  workspace: Workspace;
-  onOpenMeeting: (meeting: Meeting) => void;
-  onOpenTasks: () => void;
-  onClose: () => void;
-}) {
-  const results = useMemo(() => {
+/** 结果计算：拆出来单独用，方便搜索框与结果列表共用同一份排序。 */
+export function useGlobalSearch(query: string, workspace: Workspace) {
+  return useMemo(() => {
     const tokens = tokensOf(query);
     if (!tokens.length) return null;
 
@@ -134,42 +127,151 @@ export function GlobalSearch({
 
     return { list: [...meetingResults, ...taskResults], total: meetingResults.length + taskResults.length };
   }, [query, workspace]);
+}
 
-  if (!results) return null;
+function resultKey(result: SearchResult) {
+  return `${result.kind}-${result.kind === "meeting" ? result.meeting.id : result.task.id}`;
+}
 
+/** 结果列表：listbox/option 语义，高亮项由搜索框的方向键驱动（aria-activedescendant）。 */
+function GlobalSearchResults({ results, query, activeIndex, onHover, onOpen }: {
+  results: { list: SearchResult[]; total: number };
+  query: string;
+  activeIndex: number;
+  onHover: (index: number) => void;
+  onOpen: (result: SearchResult) => void;
+}) {
   return (
-    <div className="global-search-results" role="listbox" aria-label="全局搜索结果">
+    <div className="global-search-results">
       <div className="global-search-summary">
         <Search size={14} />
         显示 {results.total} 项相关内容（最多 10 项）
       </div>
       {results.list.length ? (
-        results.list.map((result) => (
-          <button
-            type="button"
-            className="global-search-result"
-            key={`${result.kind}-${result.kind === "meeting" ? result.meeting.id : result.task.id}`}
-            onClick={() => {
-              if (result.kind === "meeting") onOpenMeeting(result.meeting);
-              else onOpenTasks();
-              onClose();
-            }}
-          >
-            <span className={`round-icon ${result.kind === "meeting" ? "brand" : "purple"}`}>
-              {result.kind === "meeting" ? (
-                result.meeting.audioPath ? <Mic size={15} /> : <FileText size={15} />
-              ) : (
-                <CheckCircle2 size={15} />
-              )}
-            </span>
-            <span>
-              <strong><Highlight text={result.title} query={query.trim()} /></strong>
-              <small><Highlight text={result.snippet} query={query.trim()} /></small>
-            </span>
-          </button>
-        ))
+        <ul className="global-search-list" id={LIST_ID} role="listbox" aria-label="全局搜索结果">
+          {results.list.map((result, index) => (
+            <li
+              key={resultKey(result)}
+              id={optionId(index)}
+              role="option"
+              aria-selected={index === activeIndex}
+              className="global-search-result"
+              onMouseMove={() => onHover(index)}
+              // 按下时不让输入框失焦，保证光标与方向键导航连续
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => onOpen(result)}
+            >
+              <span className={`round-icon ${result.kind === "meeting" ? "brand" : "purple"}`}>
+                {result.kind === "meeting" ? (
+                  result.meeting.audioPath ? <Mic size={15} /> : <FileText size={15} />
+                ) : (
+                  <CheckCircle2 size={15} />
+                )}
+              </span>
+              <span>
+                <strong><Highlight text={result.title} query={query} /></strong>
+                <small><Highlight text={result.snippet} query={query} /></small>
+              </span>
+            </li>
+          ))}
+        </ul>
       ) : (
         <div className="global-search-empty">没有找到相关会议、笔记或待办</div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 全局搜索框：自己持有查询状态与结果面板。
+ * 采用 ARIA combobox + listbox 模式（输入框保持焦点，方向键移动高亮、Enter 打开），
+ * 并在点击面板外部时收起，避免结果面板一直挂在界面上。
+ */
+export function GlobalSearchBox({ workspace, onOpenMeeting, onOpenTasks, inputRef }: {
+  workspace: Workspace;
+  onOpenMeeting: (meeting: Meeting) => void;
+  onOpenTasks: () => void;
+  inputRef: RefObject<HTMLInputElement | null>;
+}) {
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  // 输入保持即时响应，重排/过滤走延迟值，避免长会议列表打字卡顿
+  const deferredQuery = useDeferredValue(query);
+  const results = useGlobalSearch(deferredQuery, workspace);
+  const list = results?.list ?? [];
+  const showResults = open && query.trim().length > 0 && results !== null;
+
+  useEffect(() => { setActiveIndex(-1); }, [deferredQuery]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!boxRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    return () => window.removeEventListener("mousedown", onPointerDown);
+  }, [open]);
+
+  const dismiss = () => { setQuery(""); setOpen(false); setActiveIndex(-1); };
+
+  const openResult = (result: SearchResult) => {
+    if (result.kind === "meeting") onOpenMeeting(result.meeting);
+    else onOpenTasks();
+    dismiss();
+  };
+
+  const move = (delta: number) => {
+    if (!list.length) return;
+    setOpen(true);
+    setActiveIndex((current) => {
+      const next = current + delta;
+      if (next < 0) return list.length - 1;
+      if (next >= list.length) return 0;
+      return next;
+    });
+  };
+
+  return (
+    <div className="header-search" ref={boxRef}>
+      <label className="search-box">
+        <Search size={17} />
+        <input
+          ref={inputRef}
+          role="combobox"
+          aria-label="搜索会议、笔记与待办"
+          aria-expanded={showResults}
+          aria-controls={showResults ? LIST_ID : undefined}
+          aria-autocomplete="list"
+          aria-activedescendant={showResults && activeIndex >= 0 ? optionId(activeIndex) : undefined}
+          value={query}
+          placeholder="搜索会议、笔记与待办"
+          onChange={(event) => { setQuery(event.target.value); setOpen(true); }}
+          onFocus={() => { if (query.trim()) setOpen(true); }}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
+            if (event.key === "ArrowDown") { event.preventDefault(); move(1); return; }
+            if (event.key === "ArrowUp") { event.preventDefault(); move(-1); return; }
+            if (event.key === "Enter") {
+              event.preventDefault();
+              const target = list[activeIndex];
+              if (target) openResult(target);
+              return;
+            }
+            if (event.key === "Escape") dismiss();
+          }}
+        />
+        {!query && <kbd>Ctrl F</kbd>}
+      </label>
+      {showResults && results && (
+        <GlobalSearchResults
+          results={results}
+          query={query.trim()}
+          activeIndex={activeIndex}
+          onHover={setActiveIndex}
+          onOpen={openResult}
+        />
       )}
     </div>
   );

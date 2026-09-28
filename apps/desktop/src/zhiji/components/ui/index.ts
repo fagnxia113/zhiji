@@ -6,4 +6,4 @@ export { Popover } from "./Popover";
 export { CommandPalette } from "./CommandPalette";
 export type { Command } from "./CommandPalette";
 export { ErrorBoundary } from "./ErrorBoundary";
-export { GlobalSearch } from "./GlobalSearch";
+export { GlobalSearchBox } from "./GlobalSearch";

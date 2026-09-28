@@ -25,7 +25,6 @@ import {
   Play,
   Plus,
   RefreshCw,
-  Search,
   Settings,
   Sparkles,
   Square,
@@ -36,7 +35,7 @@ import {
   Wand2,
   X,
 } from "lucide-react";
-import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AiSettings,
   AnalysisPreview,
@@ -81,7 +80,7 @@ import {
   Dialog,
   EditorField,
   Empty,
-  GlobalSearch,
+  GlobalSearchBox,
   GenerationModal,
   IconButton,
   MarkdownField,
@@ -347,7 +346,6 @@ export function App() {
   const openTasksView = (filter: TaskFilter = "open") => { setTaskFilter(filter); setView("tasks"); };
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
-  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [startupError, setStartupError] = useState("");
   const [startupAttempt, setStartupAttempt] = useState(0);
@@ -920,8 +918,6 @@ export function App() {
     }, 1500);
     return () => window.clearTimeout(timer);
   }, [selectedMeeting, persistMeeting, processingMeetingId]);
-
-  const deferredQuery = useDeferredValue(query);
 
   const createMeeting = async () => {
     if (recordingBusy) {
@@ -1973,31 +1969,15 @@ export function App() {
             <h1>{pageCopy[view].title}</h1>
             <p>{pageCopy[view].subtitle}</p>
           </div>
-          <div className="header-search">
-            <label className="search-box">
-              <Search size={17} />
-              <input
-                ref={searchInputRef}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") setQuery("");
-                }}
-                placeholder="搜索会议、笔记与待办"
-              />
-              {!query && <kbd>Ctrl F</kbd>}
-            </label>
-            <GlobalSearch
-              query={deferredQuery}
-              workspace={workspace}
-              onOpenMeeting={(meeting) => {
-                void selectMeeting(meeting);
-                setView("meetings");
-              }}
-              onOpenTasks={() => setView("tasks")}
-              onClose={() => setQuery("")}
-            />
-          </div>
+          <GlobalSearchBox
+            workspace={workspace}
+            inputRef={searchInputRef}
+            onOpenMeeting={(meeting) => {
+              void selectMeeting(meeting);
+              setView("meetings");
+            }}
+            onOpenTasks={() => setView("tasks")}
+          />
         </header>
         {message && <div className="toast" role="status" aria-live="polite">{message}</div>}
         {startupWarning && <div className="interrupted-task-banner" role="status"><div><strong>部分功能需要检查</strong><small>{startupWarning}</small></div><button className="secondary-button compact-button" onClick={() => setView("settings")}>检查设置</button><button className="secondary-button compact-button" onClick={() => void retryStartup()} disabled={recordingBusy || Boolean(processing)}>重新加载</button></div>}

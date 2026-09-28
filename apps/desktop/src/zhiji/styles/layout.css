@@ -211,8 +211,12 @@
   background: transparent;
   color: var(--text-default);
   text-align: left;
+  cursor: pointer;
 }
-.global-search-result:hover { background: var(--bg-inset); }
+/* listbox 语义：去掉 ul 默认缩进与项目符号 */
+.global-search-list { margin: 0; padding: 0; list-style: none; }
+.global-search-result:hover,
+.global-search-result[aria-selected="true"] { background: var(--bg-inset); }
 .global-search-result > span:last-child { min-width: 0; }
 .global-search-result strong,
 .global-search-result small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

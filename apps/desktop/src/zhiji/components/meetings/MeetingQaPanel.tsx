@@ -83,7 +83,7 @@ export function MeetingQaPanel({ meetingId, aiConfigured, hasContent }: MeetingQ
         </div>
         {messages.length > 0 && (
           <div className="pane-actions">
-            <button className="pane-action secondary" onClick={() => void clearHistory()} disabled={asking} title="清空本场会议的问答记录">
+            <button className="pane-action secondary" onClick={() => { if (window.confirm("确定清空本场会议的全部问答记录吗？此操作不可撤销。")) void clearHistory(); }} disabled={asking} title="清空本场会议的问答记录">
               <Trash2 size={13} />清空记录
             </button>
           </div>
