@@ -35,7 +35,7 @@
 
 > 设计原则：**安全 > 顺手 > 便宜 > 少维护**。围绕「会议 → 纪要 → 待办 → 问答 → 周报」构建个人工作台，用稳定的保存、清晰的状态和可恢复的数据支撑日常使用。
 
-本次优化与验收范围见 [产品验收记录](docs/产品验收.md)，后续建议见 [个人工作台功能规划](docs/个人工作台功能规划.md)，推广文案见 [公众号推文](docs/公众号推文.md)。工作区改动需构建、验收并发布后，才会进入公开安装包。
+使用、开发、验收和优化路线统一从 [文档导航](docs/README.md) 进入。旧提案与阶段记录已归档，不作为当前待办或发布证据。工作区改动需构建、验收并发布后，才会进入公开安装包。
 
 ## 安装与更新
 
@@ -43,16 +43,16 @@
 
 ## 构建
 
-云端 CI（GitHub Actions，windows-latest）会在 push 到 `main` 时自动跑前端构建 + Rust 编译检查 + 引擎语法检查；push `v*` tag 时额外执行 NSIS 打包并发布 Release（含签名安装包与自动更新清单）。因此常规开发不需要本机 Rust/MSVC 环境，安装包请以 Releases 产物为准。
+云端 CI（GitHub Actions，windows-latest）执行前端构建、界面回归、Rust 编译与数据测试、引擎语法检查。非 tag 运行还会生成候选 NSIS 包并验证关闭窗口行为；push `v*` tag 时发布正式 Release（含安装包、更新签名与清单）。本机缺少 Rust/MSVC 时可做前端开发，原生验证由 CI 完成；公开安装包以 Releases 产物为准。
 
 如需本地调试：
 
 ```bash
-pnpm install                 # 仓库根：workspace 内只含 apps/desktop
+pnpm install --frozen-lockfile # 知记仓库根（anarlog），不是父目录
 pnpm --filter @zhiji/desktop tauri dev
 ```
 
-本地跑 Rust 需要 MSVC 工具链；发布流程见 `RELEASE.md`。
+环境与验证命令见 [开发指南](docs/开发指南.md)，发布流程见 [发布手册](RELEASE.md)。
 
 ## 开源
 

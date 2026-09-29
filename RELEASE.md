@@ -1,110 +1,56 @@
-# 知记 (zhiji-desktop) 发布手册
+# 知记发布手册
 
-> 适用对象：维护者本人（纯个人自用，非商业化）
-> 最后更新：2026-09-08（v2.0.2 发版时同步：签名算法改为 Ed25519/minisign、仓库名改为 zhiji）
+最后核对：2026-09-28。以当前 [Desktop CI](.github/workflows/build-desktop.yml) 和 [Tauri 配置](apps/desktop/src-tauri/tauri.conf.json) 为准。历史排障与版本记录已移入 [归档](docs/archive/2026-09-28/发布手册-旧版.md)。所有命令在知记仓库根目录执行。
 
-## 1. 发布机制概览
+## 当前构建流程
 
-知记是 Tauri v2 桌面应用。发版完全由 GitHub Actions 驱动：
+- 推送到 main、codex/**、refactor/**，向 main 提 PR，或手动触发工作流，会运行前端、界面、Rust 和引擎检查。
+- 非 tag 运行构建候选 NSIS 包，执行原生关闭窗口冒烟测试并上传 artifact；候选配置关闭更新签名产物，不发布 Release。
+- 推送 v* tag 时构建并发布正式包；工作流随后规范资产名，生成和核验 latest.json。tag 路径不运行候选包关闭窗口测试，应先通过同一源码的候选验收。
+- JS 使用已提交的 pnpm-lock.yaml 和 pnpm install --frozen-lockfile；Rust 使用已提交的 Cargo.lock 和 --locked。更新依赖时同步更新锁文件，不在 CI 临时绕开检查。
 
-- 工作流：`.github/workflows/build-desktop.yml`，使用官方 `tauri-apps/tauri-action@v0`
-- 推送 `v*` tag 时：`tauri build` → 用 GitHub Secret 私钥给更新包签名 → 生成 `latest.json` → 在 GitHub Releases 创建 `vX.Y.Z` 并挂上安装包
-- 应用内自动更新：前端 `plugin-updater` 启动时静默检查 GitHub Releases 的 `latest.json`，有新版则弹窗提示下载安装
+## 发布前
 
-一句话：**改版本号 → commit → 打 tag → push，剩下的 CI 全包**。
+1. 完成 [产品验收](docs/产品验收.md)，核对准备发布的差异及候选包证据。
+2. 选定本次版本 X.Y.Z，同步以下三处：
+   - [tauri.conf.json](apps/desktop/src-tauri/tauri.conf.json) 的根级 version。
+   - [Cargo.toml](apps/desktop/src-tauri/Cargo.toml) 的 zhiji-desktop package version。
+   - [Cargo.lock](Cargo.lock) 中 name = "zhiji-desktop" 对应的 version。
+3. 更新工作流中 releaseBody 的版本与说明。当前文本仍固定为 2.0.10；下次发版前必须改成本次实际交付内容。
+4. 核对 GitHub Secret TAURI_SIGNING_PRIVATE_KEY、对应密码配置与 plugins.updater.pubkey 的配对关系。当前工作流传入空密码；如密钥使用密码，工作流须引用相应 Secret。不要输出、提交或写入文档中的私钥正文。
+5. 确认 bundle.createUpdaterArtifacts 已开启，更新端点有效，capabilities 包含 updater / process 所需权限。
 
-## 2. 已配置好的前置条件（通常不用动）
+前端 package version 目前不承担安装包版本来源；发布版本以以上三处和 tag 一致为准。
 
-| 项目 | 位置 / 名称 | 说明 |
-|------|------------|------|
-| 签名私钥（Secret） | GitHub Secrets `TAURI_SIGNING_PRIVATE_KEY` | **Ed25519/minisign** 私钥（Tauri v2 不再支持 RSA），必须是本地 `C:\Users\12207\.tauri\zhiji-ed25519.key` 的完整正文 |
-| 私钥本地备份 | `C:\Users\12207\.tauri\zhiji-ed25519.key` | 务必备份，丢失则无法再出新签名包 |
-| 对应公钥 | `tauri.conf.json` → `plugins`/ `bundle` 下的 `updater.pubkey` | 与上面私钥配对；改私钥须同步此处 |
-| 更新端点 | `tauri.conf.json` → `updater.endpoints` | 指向 `.../releases/latest/download/latest.json` |
-| 更新产物开关 | `tauri.conf.json` → `bundle.createUpdaterArtifacts: true` | 必须 true，才会生成 `.sig` |
-| CI 工作流 | `.github/workflows/build-desktop.yml` | `tauri-action@v0`，已把私钥以 env 传给构建 |
-| npm 入口 | `apps/desktop/package.json` 的 `"tauri": "tauri"` | **必须保留**，tauri-action 固定调用 `npm run tauri` |
+## 发布步骤
 
-## 3. 发版步骤
+以下 X.Y.Z 是占位符，执行前替换为实际版本。先审阅并仅暂存本次要发布的文件，再提交，避免把无关未提交工作打进版本。
 
-1. 修改代码并完成本地自测（前端 `tsc --noEmit` + `vite build` 可在本机跑；Rust 编译只能靠 CI）。
-2. **同步版本号，三处必须完全一致**：
-   - `apps/desktop/src-tauri/tauri.conf.json` 根级 `"version"`
-   - `apps/desktop/src-tauri/Cargo.toml` 的 `[package] version`
-   - **`Cargo.lock` 里 `[[package]] name = "zhiji-desktop"` 的 `version`**（仓库已提交 Cargo.lock，CI 用 `cargo check --locked`，漏改会直接失败：`cannot update the lock file ... because --locked was passed`）
-   - 例如 `2.0.1` → `2.0.2`
-3. 提交：
-   ```
-   git add -A
-   git commit -m "你的改动说明"
-   ```
-4. 打 tag（推送 tag 才触发 Release 构建）：
-   ```
-   git tag v1.1.3
-   ```
-5. 推送：
-   ```
-   git push origin main
-   git push origin v1.1.3
-   ```
-6. 打开 GitHub Actions 等构建完成（通常 10–30 分钟）。
+```bash
+git diff --cached
+git commit -m "release: vX.Y.Z"
+git push origin main
+```
 
-## 4. 发布后验证清单（缺一不可）
+等待该提交的非 tag 工作流和候选包验收通过，再在同一提交上打 tag：
 
-- [ ] GitHub Actions 本次 run 全绿（install → tauri build → 签名 → 打包）
-- [ ] Releases 页 `vX.Y.Z` 资产**必须包含三项**：
-      `知记_X.Y.Z_x64_zh-CN.exe`（或 `_X.Y.Z_x64-setup.exe`）+ `*.sig` + `latest.json`
-      ⚠️ 只有 `.exe` 不代表成功——没有 `.sig`/`latest.json` 时自动更新是坏的，但 build 仍会显示 success
-- [ ] 访问 `https://github.com/fagnxia113/zhiji/releases/latest/download/latest.json` 应返回 JSON（不是 404）
-      （国内直连常被墙，用 `https://ghproxy.net/https://github.com/fagnxia113/zhiji/releases/latest/download/latest.json` 验证）
-- [ ] 安装新包后：启动自动弹出「发现新版本」提示
-- [ ] 设置页「检查更新」按钮可用、能正确报告「已是最新」
-- [ ] 从旧版本打开：自动更新链路（下载 → `.sig` 校验 → 安装重启）正常
-- [ ] 设置页「检查更新」**不再报 `not allowed by ACL`**（确认 `src-tauri/capabilities/default.json` 已授权 `updater:default` + `process:default`；漏授权会直接导致检查更新被 Tauri 运行时拒绝）
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
 
-## 5. 踩坑速查（都已实际踩过，勿再犯）
+等待 tag 对应的 Desktop CI 完成。仅本地构建或非 tag 工作流通过不表示正式包已发布。
 
-1. **`tauri` npm script 不能删**：`tauri-action` 固定执行 `npm run tauri build`。项目若只写 `tauri:dev`/`tauri:build` 会报 `Missing script: "tauri"`。
-2. **CI install 用 `--no-frozen-lockfile`**：本机无 pnpm，前端新增依赖靠 CI 自动解析 lockfile；若改了 `package.json` 依赖，不用手动碰 `pnpm-lock.yaml`。
-3. **Rust 依赖无 Cargo.lock**：仓库未提交 `Cargo.lock`，CI 每次把 `= "2"` 解析为最新 `2.x`，补丁版本可能改 API。已踩：`tauri-plugin-updater` 2.x 已移除自由函数 `init()`，须用 `tauri_plugin_updater::Builder::new().build()`（不要凭 `dialog`/`process` 插件有 `init()` 类推）。
-4. **版本号两处必须同步**：只改一处会导致 NSIS 安装包版本与 updater 期望版本不一致，自动更新可能不触发或混乱。
-5. **签名密钥配对（最隐蔽的坑）**：
-   - ⚠️ **Tauri v2 的 updater 只认 Ed25519/minisign，早期 v1 用的 RSA 密钥体系在这里完全无效**（表现：签名步骤直接失败或静默跳过）。现用密钥由 `tauri signer generate` 生成，私钥在 `C:\Users\12207\.tauri\zhiji-ed25519.key`，公钥已写入 `tauri.conf.json` 的 `plugins.updater.pubkey`（不是 `bundle` 下）。
-   - Secret `TAURI_SIGNING_PRIVATE_KEY` 的内容**必须是私钥文件的完整正文**（末尾换行保留、无 BOM、无多余空格）。
-   - 密钥是**空密码**生成的，但 minisign 仍带 KDF，所以 workflow 里**必须**同时传 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""`，漏了 CI 签名会失败。
-   - 内容不完整/不对时，Tauri 签名会**静默失败（仅 warning）**，build 照样 success，但 Release 里**只有 `.exe`、没有 `.sig` 也没有 `latest.json`**——自动更新等于没接上，且 CI 不会报错。
-   - ⚠️ **新建的 GitHub 仓库不继承 Actions secrets**：`fagnxia113/zhiji` 是 2026-09-03 新建的，首次打包前必须由本人在网页 Settings → Secrets 里补 `TAURI_SIGNING_PRIVATE_KEY`（v2.0.0 首发时踩过）。
-6. **SmartScreen 警告**：NSIS 安装包没有 Authenticode 代码签名证书，Windows 首次安装可能弹「未知发布者」。这与 Tauri 的 `.sig`（仅防更新包被篡改）是两回事，点「仍要运行」即可，不影响自动更新链路。
-7. **插件 capability 授权（隐藏的 ACL 坑）**：Tauri v2 对**插件命令默认 deny**，必须在 `src-tauri/capabilities/default.json` 的 `permissions` 里显式 allow。每注册一个插件（updater / process / dialog 等），都要加对应的 `<plugin>:default` 或具体 `allow-*` 权限，否则运行时报 `Command plugin:xxx|yyy not allowed by ACL`。应用**自己的** `#[tauri::command]` 默认 allow（所以录音/保存一直正常），唯独插件命令会被卡。已踩：v1.1.4 之前漏了 `updater:default` + `process:default`，导致「检查更新」直接报 ACL 错。改完权限必须发新版本号（updater 按版本号判更新）。
+## 发布后验证
 
-## 6. 重生成签名密钥（仅在私钥泄露/丢失时）
+- [ ] Release 对应正确 tag / 提交，说明与实际交付一致。
+- [ ] 资产同时包含 ZhiJi_X.Y.Z_x64-setup.exe、对应 .exe.sig 和 latest.json。
+- [ ] latest.json 的 version、windows-x86_64 下载地址、signature 与本版资产一致；下载文件是有效 Windows 安装程序。CI 已有相关检查，仍须核对结果。
+- [ ] 全新安装正常，设置页“检查更新”可用；最新版应显示已是最新。
+- [ ] 从旧版检查更新、下载、签名校验、安装重启和资料保留均正常。
 
-1. 生成新密钥对（Tauri v2 = Ed25519/minisign，不要用 openssl RSA）：
-   ```
-   pnpm tauri signer generate -- -w C:\Users\12207\.tauri\zhiji-ed25519.key
-   ```
-   命令会同时打印公钥（base64，形如 `dW50cnVzdGVkIGNvbW1lbnQ6...`）。
-2. 把公钥写入 `tauri.conf.json` 的 `plugins.updater.pubkey`（替换原值）。
-3. 把私钥**全文**复制到 GitHub 仓库 Settings → Secrets → Actions，覆盖 `TAURI_SIGNING_PRIVATE_KEY`；并确保 workflow 里有 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""`（空密码也要传）。
-5. 重新走第 3 节发版步骤打 tag 出新包。
+Tauri 的 .sig 用于验证更新包，与 Windows Authenticode 代码签名是两回事。缺少 .sig 或 latest.json 即未完成更新链路，不能仅以安装包上传成功宣告发布成功。
 
-## 7. 版本历史
+## 密钥变更
 
-- **v1.1.0**：整体换 Win11 Fluent 2 皮肤 + 窗口响应式 + 首个 GitHub Release 发行版
-- **v1.1.1**：UI 减字收敛 + 本地说话人引擎下载修复（超时/重试/HF 镜像）
-- **v1.1.2**：应用内自动更新（GitHub Releases 驱动）；CI 经多轮修复（lockfile、`tauri` script、updater `Builder` API）后稳定。
-  注意：v1.1.2 首次发布时因 GitHub Secret 私钥内容不完整，Release 仅有 `.exe`，缺 `.sig`/`latest.json`，自动更新当时不可用；须修正 Secret 后重新发版补全。
-- **v1.1.3**：微信风重设计（图标栏 + 微信绿 #07C160 + 首页瘦身 + 状态圆点 + 删渐变）。
-- **v1.1.4**：修复「检查更新」报 `not allowed by ACL`——`capabilities/default.json` 补 `updater:default` + `process:default` 授权。
-- **v2.0.0**（2026-09-03）：迁移到全新仓库 `fagnxia113/zhiji`（历史压缩为单提交），定位「个人工作台」，重签名体系为 Ed25519。
-- **v2.0.1**（2026-09-05）：关闭=隐藏到托盘（替换原先不可靠的 confirm 兜底）；禁用 WebView 后台节流，根治「最小化后录音丢约 20 分钟」。
-- **v2.0.2**（2026-09-08）：修复关闭窗口可能直接退出应用（JS `onCloseRequested` 缺 `preventDefault` 导致包装器销毁窗口）；托盘不可用时也正确隐藏而非最小化；关闭前先落盘当前会议。CI 新增原生「关闭到托盘」冒烟测试。
-- **v2.0.3**（2026-09-08）：托盘图标左键单击/双击即可唤回窗口（原先只有右键菜单「打开界面」）。
-- **v2.0.4**（2026-09-08）：新增「手动安装引擎」面板（下载链接、目标目录、整目录导入、断点续传、pip 离线 wheels）；单实例互斥锁——重复启动唤起已有窗口（修复任务栏固定图标点出白闪后闪退）；下载链接改走系统浏览器（WebView 内 `target=_blank` 不生效）。
-- **v2.0.5**（2026-09-10）：修复实时字幕精校转写乱码——会议背景/标题中残留的 `<s>`、`<|zh|>` 等转写特殊符号被切成热词喂给 SeACo 模型，带偏整句解码；Rust 切词与 Python 引擎双侧过滤含尖括号的 token，转写文本清理同步移除 `<s>`/`</s>` 残留。
-- **v2.0.6**（2026-09-10）：修复精校乱码的真正根因——模型权重下载中断残留 `.incomplete` 文件，旧版只查 `config.yaml` 误判完整，FunASR 带随机权重运行输出整场乱码；本机已补全权重，应用侧 Rust+Python 双侧新增权重完整性校验（要求 `model.pt` 存在、拒绝 `.incomplete`/`.part` 残留），残缺目录视为未安装。
-- **v2.0.7**（2026-09-11）：修复现场会议说话人识别只有一个人——双轨录音固定把麦克风轨标成"我"，但现场会议麦克风收全场人声，导致多人被合并成一个人；新增静音检测（扫描 system 轨 WAV 能量），判定为现场会议时跳过空轨转写、麦克风轨改走完整声纹聚类还原真实说话人，单独口述仍保留"我"。
-- **v2.0.8**（2026-09-11）：修复 v2.0.7 现场会议检测未生效——静音检测假设 WAV 头固定 44 字节，但 ffmpeg 从 raw 转出的系统声音轨带 LIST 元数据块（数据从 78 字节开始），ASCII 元数据被当成音频扫出假活动窗；改为正确解析 RIFF 块链定位 data 起点，两场真实现场会议录音验证判对。
-- **v2.0.9**（2026-09-12）：修复长会议声纹聚类塌缩——>600 声纹窗时"抽 600 样本谱聚类"的捷径在远场低区分度声纹上失效，全场塌缩 1 簇触发「唯一说话人→我」兜底；采样上限提至 2000，9/10 现场 2945 窗修为 4 人（与全量谱聚类 96.7% 一致）、9/2 回归无变化。此间发现：CAMPPlus 批量 generate 返回单个 (N,192) 张量（非 N 个结果字典），extract_embeddings 的 len 校验恰好按批处理因此一直正常。
-- **v2.0.10**（2026-09-23）：修复「智能纪要一直报错」——从本机凭据取出真实密钥按应用逻辑复现，确认根因在**用户侧 OpenAI 兼容网关**：连续发起长请求时会间歇性返回 401「无效的令牌」（同一密钥同一进程，前一次 200、下一次立刻 401，几十秒后自行恢复）；长会议纪要把一场会切成 3~7 段连续请求，任一段被拒即整场失败，因此 9/15 之后（含 9/17、9/21、9/22、9/23）所有会议 `minutes` 全为空。修复：新增统一 `chat_completion()` 封装，对网络错误与 401/403/408/429/5xx 做最多 5 次退避重试（4/8/12/16 秒），400/404（模型名、地址错误）不重试；另补 20s 连接超时 + 600s 总超时。同一版新增「一键复制」：原文栏复制完整原文、智能纪要栏复制纪要全文。
-  排查要点（可复用）：① 会议表 `length(minutes)` 按日期排序能一眼看出"从哪天起全为空"；② 应用不落 AI 错误日志，错误只在 toast，定位靠 Python 复现脚本 `repro_analysis.py`；③ Windows 凭据管理器里知记的密钥 target 为 `ai-api-key.com.zhiji.meetnote`，blob 是 **UTF-16LE**（不是 UTF-8），读出来必须 `.decode("utf-16-le")`，否则头部带 `\0` 会被 nginx 判 400。
+常规发布沿用原签名密钥。丢失或轮换密钥时，不能只修改新包公钥就假定旧客户端能自动升级：旧客户端仍持有旧公钥。须单独设计兼容迁移或提供手动安装路径，并实际验证。历史手册的密钥重建步骤不作为当前自动更新迁移方案。
