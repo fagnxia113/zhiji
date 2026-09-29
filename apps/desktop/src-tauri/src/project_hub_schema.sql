@@ -33,6 +33,10 @@ CREATE TABLE IF NOT EXISTS task_history (
   project_id TEXT, snapshot_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS task_history_time ON task_history(occurred_at, project_id);
+-- 本触发器引用 tasks.owner。SQLite 在执行 ALTER TABLE 后会重新解析整个 schema，
+-- 所以任何删掉 tasks 列（含 owner）的迁移都必须先 DROP 本触发器，否则那条 ALTER
+-- 会以「error in trigger task_progress_update after drop column: no such column: NEW.owner」
+-- 失败。当前的迁移只 ADD COLUMN 且先补列再建触发器，所以线上不受影响。
 CREATE TRIGGER IF NOT EXISTS task_progress_update AFTER UPDATE OF completed ON tasks
 WHEN OLD.completed <> NEW.completed BEGIN
   INSERT INTO task_history(task_id,occurred_at,project_id,snapshot_json)

@@ -66,7 +66,7 @@ fn project_hub_backup_restores_relations_and_exact_history() {
 fn legacy_backup_without_hub_tables_seeds_only_known_entry_state() {
     let dir=TestDirectory::new();let legacy=sample_database(&dir.0.join("old.sqlite3"));
     workbench::save_entry(&legacy,&json!({"id":"e","content":"旧版记录","occurredOn":"2026-09-01"}),false).unwrap();
-    legacy.execute_batch("DROP TRIGGER work_entry_history_insert; DROP TRIGGER work_entry_history_update; DROP TRIGGER task_progress_update;").unwrap();
+    drop_history_triggers(&legacy);
     for (table,_) in project_hub::TABLES.iter().rev() { legacy.execute_batch(&format!("DROP TABLE {table}")).unwrap(); }
     let backup=create_backup_snapshot(&legacy,&dir.0.join("backups")).unwrap();
     let mut live=sample_database(&dir.0.join("live-new.sqlite3"));
@@ -114,6 +114,21 @@ fn sample_database(path: &Path) -> Connection {
 
 fn text_value(connection: &Connection, sql: &str) -> String {
     connection.query_row(sql, [], |row| row.get(0)).unwrap()
+}
+
+/// 老版本的库不带这套历史触发器：它们与 tasks.owner 是同一批迁移引入的（见
+/// project_hub_schema.sql），所以模拟老库时必须先摘掉。
+/// 顺序不能反：SQLite 执行 ALTER TABLE DROP COLUMN 后会重新解析整个 schema，
+/// 触发器里引用的 NEW.owner 已不存在，删列语句本身就会失败——
+/// error in trigger task_progress_update after drop column: no such column: NEW.owner
+fn drop_history_triggers(connection: &Connection) {
+    connection
+        .execute_batch(
+            "DROP TRIGGER IF EXISTS task_progress_update;
+             DROP TRIGGER IF EXISTS work_entry_history_insert;
+             DROP TRIGGER IF EXISTS work_entry_history_update;",
+        )
+        .unwrap();
 }
 
 #[test]
@@ -224,6 +239,7 @@ fn legacy_backup_without_owner_or_question_table_remains_restorable() {
     let directory = TestDirectory::new();
     let mut live = sample_database(&directory.0.join("live.sqlite3"));
     let legacy = sample_database(&directory.0.join("legacy.sqlite3"));
+    drop_history_triggers(&legacy);
     legacy.execute_batch("ALTER TABLE tasks DROP COLUMN owner; DROP TABLE qa_messages;").unwrap();
     let backups = directory.0.join("backups");
     let snapshot = create_backup_snapshot(&legacy, &backups).unwrap();
@@ -267,6 +283,7 @@ fn rapid_backups_keep_the_new_snapshot_and_bounded_history() {
 fn repeated_migrations_preserve_existing_records() {
     let directory = TestDirectory::new();
     let connection = sample_database(&directory.0.join("live.sqlite3"));
+    drop_history_triggers(&connection);
     connection.execute_batch("ALTER TABLE tasks DROP COLUMN owner;").unwrap();
     initialize_database(&connection).unwrap();
     initialize_database(&connection).unwrap();
