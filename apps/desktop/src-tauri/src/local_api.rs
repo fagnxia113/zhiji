@@ -196,11 +196,11 @@ fn tool_definitions() -> Value {
     json!([
         read("list_projects","列出授权范围内的项目",json!({"type":"object","properties":{},"additionalProperties":false})),
         read("search_work","检索工作记录、会议摘要和待办；返回稳定来源 ID。结果包含数量上限。",filter.clone()),
-        read("get_project_context","获取项目会议背景、进展和行动项",filter.clone()),
+        read("get_project_context","获取项目会议背景、进展、行动项，以及关联活动与本地文件元信息。contentStatus=metadata_only 表示未读取文件正文，不可据文件名推断内容。",filter.clone()),
         read("list_followups","查看等待反馈的工作记录与未完成待办",filter),
         read("report_material","获取指定起始日起七天的周报材料与缺口提示，AI 可据此撰写周报；不调用云模型",json!({"type":"object","properties":{"weekStart":{"type":"string","description":"YYYY-MM-DD"},"projectId":{"type":"string"}},"required":["weekStart"],"additionalProperties":false})),
         {"name":"capture_work","description":"记录实际工作进展。需要用户在知记开启记录写入。id 是调用方生成的稳定唯一键，重试复用同一 id；不能覆盖既有记录。不要将计划声明为已完成。",
-        "inputSchema":{"type":"object","properties":{"id":{"type":"string"},"content":{"type":"string","maxLength":20000},"occurredOn":{"type":"string","description":"实际发生日期 YYYY-MM-DD"},"projectId":{"type":"string"},"kind":{"type":"string","enum":["progress","achievement","decision","risk","note"]},"status":{"type":"string","enum":["recorded","in_progress","waiting","done"]},"sourceLabel":{"type":"string","maxLength":200}},"required":["id","content","occurredOn"],"additionalProperties":false},
+        "inputSchema":{"type":"object","properties":{"id":{"type":"string"},"content":{"type":"string","maxLength":20000},"occurredOn":{"type":"string","description":"实际发生日期 YYYY-MM-DD"},"projectId":{"type":"string"},"kind":{"type":"string","enum":["progress","achievement","decision","risk","note"]},"status":{"type":"string","enum":["recorded","in_progress","waiting","done"]},"sourceLabel":{"type":"string","maxLength":200},"activityId":{"type":"string","description":"所选项目内的活动 ID"},"resourceId":{"type":"string","description":"所选项目内的文件 ID；同时指定活动时须已关联该活动"}},"required":["id","content","occurredOn"],"additionalProperties":false},
         "annotations":{"readOnlyHint":false,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}}
     ])
 }

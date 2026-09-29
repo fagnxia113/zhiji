@@ -1,5 +1,81 @@
 use super::*;
 
+#[test]
+fn project_hub_reuses_files_scopes_context_and_preserves_originals() {
+    let dir = TestDirectory::new();
+    let db = sample_database(&dir.0.join("hub.sqlite3"));
+    for pid in ["p", "q", "private"] {
+        workbench::dispatch_db(&db,"save_project",&json!({"id":pid,"name":pid})).unwrap();
+    }
+    let activity=json!({"id":"a","projectId":"p","title":"成果评审","kind":"review","occurredOn":"2026-09-29"});
+    workbench::dispatch_db(&db,"save_activity",&activity).unwrap();
+    workbench::dispatch_db(&db,"save_activity",&activity).unwrap();
+    workbench::dispatch_db(&db,"link_activity",&json!({"activityId":"a","projectId":"q"})).unwrap();
+    let file=dir.0.join("报告.md"); fs::write(&file,"原始内容").unwrap();
+    let args=json!({"path":file.to_string_lossy(),"activityId":"a","role":"output"});
+    let first=workbench::dispatch_db(&db,"register_resource",&args).unwrap();
+    assert_eq!(workbench::dispatch_db(&db,"register_resource",&args).unwrap(),first);
+    assert_eq!(project_hub::load(&db,Some("q")).unwrap()["resources"].as_array().unwrap().len(),1);
+    assert!(project_hub::load(&db,Some("private")).unwrap()["resources"].as_array().unwrap().is_empty());
+    let entry=json!({"id":"e","content":"已提交初稿，等待评审","occurredOn":"2026-09-29","status":"waiting","projectId":"p","activityId":"a","resourceId":first["id"]});
+    workbench::save_entry(&db,&entry,true).unwrap();
+    workbench::save_entry(&db,&entry,true).unwrap();
+    assert_eq!(db.query_row("SELECT count(*) FROM entry_history WHERE entry_id='e'",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+    let mut forbidden=entry.clone(); forbidden["id"]=json!("forbidden"); forbidden["projectId"]=json!("private");
+    assert!(workbench::save_entry(&db,&forbidden,true).is_err());
+    let material=workbench::material(&db,"2026-09-28",Some("p")).unwrap();
+    assert!(material.sources.iter().any(|s|s.id=="e" && s.content.contains("报告.md") && s.content.contains("未读取正文")));
+    workbench::dispatch_db(&db,"unlink_resource",&json!({"resourceId":first["id"],"activityId":"a"})).unwrap();
+    assert_eq!(fs::read_to_string(file).unwrap(),"原始内容");
+    assert_eq!(db.query_row("SELECT count(*) FROM resources",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+}
+
+#[test]
+fn project_hub_failed_registration_and_history_write_roll_back() {
+    let dir=TestDirectory::new(); let db=sample_database(&dir.0.join("atomic.sqlite3"));
+    let file=dir.0.join("材料.md");fs::write(&file,"正文").unwrap();
+    assert!(workbench::dispatch_db(&db,"register_resource",&json!({"path":file.to_string_lossy(),"projectId":"missing"})).is_err());
+    assert_eq!(db.query_row("SELECT count(*) FROM resources",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+    let entry=json!({"id":"e","content":"原进展","occurredOn":"2026-09-29"});
+    workbench::save_entry(&db,&entry,false).unwrap();
+    db.execute_batch("CREATE TRIGGER fail_history BEFORE INSERT ON entry_history BEGIN SELECT RAISE(ABORT,'test history write failed'); END;").unwrap();
+    let mut edited=entry.clone();edited["content"]=json!("无法保存的新内容");
+    assert!(workbench::save_entry(&db,&edited,false).is_err());
+    assert_eq!(text_value(&db,"SELECT content FROM work_entries WHERE id='e'"),"原进展");
+}
+
+#[test]
+fn project_hub_backup_restores_relations_and_exact_history() {
+    let dir=TestDirectory::new();let mut db=sample_database(&dir.0.join("backup-hub.sqlite3"));
+    workbench::dispatch_db(&db,"save_project",&json!({"id":"p","name":"调研"})).unwrap();
+    workbench::dispatch_db(&db,"save_activity",&json!({"id":"a","projectId":"p","title":"评审","kind":"review","occurredOn":"2026-09-29","meetingId":"meeting"})).unwrap();
+    let entry=json!({"id":"e","content":"完成初稿","occurredOn":"2026-09-29","projectId":"p","activityId":"a"});
+    workbench::save_entry(&db,&entry,false).unwrap();
+    let mut edited=entry.clone();edited["content"]=json!("初稿提交，等待反馈");workbench::save_entry(&db,&edited,false).unwrap();
+    let before=project_hub::dispatch(&db,"entry_history",&json!({"entryId":"e"})).unwrap();
+    let backup=create_backup_snapshot(&db,&dir.0.join("backups")).unwrap();
+    edited["content"]=json!("后来修改");workbench::save_entry(&db,&edited,false).unwrap();
+    restore_database_backup(&mut db,&dir.0.join("backups"),&backup.file_name).unwrap();
+    assert_eq!(project_hub::dispatch(&db,"entry_history",&json!({"entryId":"e"})).unwrap(),before);
+    assert_eq!(project_hub::load(&db,Some("p")).unwrap()["activities"][0]["id"],"a");
+    workbench::export(&db,&dir.0).unwrap();
+    assert!(fs::read_to_string(dir.0.join("项目活动资料与进展历史.json")).unwrap().contains("完成初稿"));
+}
+
+#[test]
+fn legacy_backup_without_hub_tables_seeds_only_known_entry_state() {
+    let dir=TestDirectory::new();let legacy=sample_database(&dir.0.join("old.sqlite3"));
+    workbench::save_entry(&legacy,&json!({"id":"e","content":"旧版记录","occurredOn":"2026-09-01"}),false).unwrap();
+    legacy.execute_batch("DROP TRIGGER work_entry_history_insert; DROP TRIGGER work_entry_history_update; DROP TRIGGER task_progress_update;").unwrap();
+    for (table,_) in project_hub::TABLES.iter().rev() { legacy.execute_batch(&format!("DROP TABLE {table}")).unwrap(); }
+    let backup=create_backup_snapshot(&legacy,&dir.0.join("backups")).unwrap();
+    let mut live=sample_database(&dir.0.join("live-new.sqlite3"));
+    restore_database_backup(&mut live,&dir.0.join("backups"),&backup.file_name).unwrap();
+    let history=project_hub::dispatch(&live,"entry_history",&json!({"entryId":"e"})).unwrap();
+    assert_eq!(history.as_array().unwrap().len(),1);
+    assert_eq!(history[0]["entry"]["content"],"旧版记录");
+}
+
 // Real SQLite files, isolated from the user's app data; no Tauri IPC mock.
 struct TestDirectory(PathBuf);
 impl TestDirectory {
@@ -63,6 +139,7 @@ fn report_uses_actual_completion_date_and_project_inheritance() {
     workbench::dispatch_db(&db,"link_project",&json!({"entityType":"meeting","entityId":"meeting","projectId":"project"})).unwrap();
     db.execute("UPDATE tasks SET completed=1 WHERE id='task'",[]).unwrap();
     db.execute("UPDATE task_activity SET completed_at='2026-09-23T10:00:00+08:00' WHERE task_id='task'",[]).unwrap();
+    db.execute("UPDATE task_history SET occurred_at='2026-09-23T10:00:00+08:00' WHERE task_id='task'",[]).unwrap();
     // A later title/owner edit must not move a completed task into a different report week.
     db.execute("UPDATE tasks SET title='提交新版方案' WHERE id='task'",[]).unwrap();
     assert_eq!(text_value(&db,"SELECT completed_at FROM task_activity WHERE task_id='task'"),"2026-09-23T10:00:00+08:00");
@@ -70,10 +147,14 @@ fn report_uses_actual_completion_date_and_project_inheritance() {
     workbench::save_entry(&db,&json!({"id":"other","content":"其他项目工作","occurredOn":"2026-09-22"}),true).unwrap();
     let material=workbench::material(&db,"2026-09-21",Some("project")).unwrap();
     assert_eq!(material.sources.len(),2);
-    assert!(material.sources.iter().any(|s|s.source_type=="task"&&s.id=="task"));
+    assert!(material.sources.iter().any(|s|s.source_type=="task_event"&&s.content.contains("标记完成")));
     assert!(material.sources.iter().any(|s|s.source_type=="entry"&&s.id=="entry"));
     assert!(workbench::material(&db,"2026-09-28",Some("project")).unwrap().sources.is_empty());
     db.execute("UPDATE tasks SET completed=0 WHERE id='task'",[]).unwrap();
+    db.execute("UPDATE task_history SET occurred_at='2026-09-29T10:00:00+08:00' WHERE task_id='task' AND json_extract(snapshot_json,'$.completed')=0",[]).unwrap();
+    let old_week=workbench::material(&db,"2026-09-21",Some("project")).unwrap();
+    assert!(old_week.sources.iter().any(|s|s.source_type=="task_event"&&s.content.contains("标记完成")));
+    assert!(!old_week.sources.iter().any(|s|s.source_type=="task_event"&&s.content.contains("当时操作：重新打开")));
     assert!(db.query_row("SELECT completed_at FROM task_activity WHERE task_id='task'",[],|r|r.get::<_,Option<String>>(0)).unwrap().is_none());
 }
 
