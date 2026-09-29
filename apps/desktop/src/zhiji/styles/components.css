@@ -606,10 +606,16 @@ button.task-source.icon-only { display: inline-flex; align-items: center; justif
   background: var(--bg-subtle);
   box-shadow: var(--shadow-xs);
 }
-.ai-flow-copy { display: flex; align-items: flex-start; gap: var(--space-3); min-width: 0; flex: 1 1 260px; color: var(--accent-text); }
+.ai-flow-copy { display: flex; align-items: center; gap: var(--space-3); min-width: 0; flex: 1 1 260px; color: var(--accent-text); }
+.ai-flow-copy > svg { flex: none; }
+.ai-flow-title { min-width: 0; }
 .ai-flow-copy strong, .ai-flow-copy small { display: block; }
 .ai-flow-copy strong { color: var(--text-strong); font-size: 13px; }
 .ai-flow-copy small { margin-top: 4px; color: var(--text-muted); font-size: 11px; line-height: 1.5; word-break: break-word; overflow-wrap: anywhere; }
+/* 说明图标：就绪态下把长篇解释收进悬停气泡，常态只留一个 14px 图标 */
+.ai-flow-info { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; color: var(--text-faint); cursor: help; flex: none; }
+.ai-flow-info:hover, .ai-flow-info:focus-visible { color: var(--accent-text); background: var(--bg-hover); outline: none; }
+.ai-flow-info:focus-visible { box-shadow: 0 0 0 2px var(--accent-ring); }
 
 .ai-flow-actions, .settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .ai-flow-actions { flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; }
@@ -948,7 +954,7 @@ button.task-source.icon-only { display: inline-flex; align-items: center; justif
 
 .meeting-workspace-tabs {
   position: sticky;
-  top: 0;
+  top: var(--meeting-header-h);
   z-index: 6;
   display: flex;
   gap: var(--space-1);
@@ -1513,12 +1519,16 @@ button.task-source.icon-only { display: inline-flex; align-items: center; justif
 .meeting-list-scroll { flex: 1; overflow: auto; padding-bottom: var(--space-4); }
 .meeting-list-scroll .meeting-item { margin: 2px var(--space-2); width: calc(100% - var(--space-4)); border: 0; border-radius: var(--radius-md); }
 
-.meeting-detail { min-width: 0; overflow: auto; background: var(--bg-app); }
+/* --meeting-header-h 同时供两个 sticky 元素使用：头部贴在滚动容器顶部，
+   内容 Tab 行必须让开这一整段，否则两者都 top:0 会互相叠加 ——
+   Tab 行（z-index 6）会被头部（z-index 12）整个盖住，滚动时导航直接消失。
+   该变量与 .meeting-detail-header 的实高保持一致（内容撑高，与标题长短无关）。 */
+.meeting-detail { min-width: 0; overflow: auto; background: var(--bg-app); --meeting-header-h: 82px; }
 .meeting-detail-header {
   position: sticky;
   top: 0;
   z-index: 12;
-  min-height: 76px;
+  min-height: var(--meeting-header-h);
   display: flex;
   align-items: center;
   gap: var(--space-4);

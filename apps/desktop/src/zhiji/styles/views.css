@@ -633,6 +633,7 @@
   .meeting-shell.has-meeting .meeting-sidebar { display: none; }
   .meeting-shell.has-meeting .meeting-detail,
   .meeting-shell.is-live .meeting-detail { display: block; }
+  .meeting-detail { --meeting-header-h: 76px; }
   .meeting-detail-header { min-height: 68px; padding: var(--space-3) var(--space-4); }
   .meeting-title-block .title-input { font-size: 17px; }
   .meeting-title-block .meeting-meta > span:last-child { display: none; }

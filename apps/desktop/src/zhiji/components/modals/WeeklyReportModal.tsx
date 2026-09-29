@@ -19,11 +19,12 @@ export function WeeklyReportModal({ onClose }: { onClose: () => void }) {
   const [preview, setPreview] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const dirty = !!selected && content !== selected.content;
   const html = useMemo(() => renderMarkdown(content), [content]);
   useEffect(() => { void workbenchCall<WeeklyReport[]>("list_reports").then(setReports).catch(cause => setError(String(cause))); }, []);
   useEffect(() => {
-    let active = true; setMaterial(null);
+    let active = true; setMaterial(null); setExcluded(new Set());
     if (weekStart) void workbenchCall<ReportMaterial>("report_material", { weekStart, projectId: projectId || null })
       .then(result => { if (active) { setMaterial(result); setError(""); } }).catch(cause => { if (active) setError(String(cause)); });
     return () => { active = false; };
@@ -44,7 +45,8 @@ export function WeeklyReportModal({ onClose }: { onClose: () => void }) {
     if (dirty) { setError("请先保存当前修改，再生成新版本。"); return; }
     setBusy(true); setError(""); setNotice("");
     try {
-      const report = await workbenchCall<WeeklyReport>("generate_report", { weekStart, projectId: projectId || null, mode });
+      const selectedSources = material?.sources.map(s => `${s.sourceType}:${s.id}`).filter(key => !excluded.has(key)) || [];
+      const report = await workbenchCall<WeeklyReport>("generate_report", { weekStart, projectId: projectId || null, mode, selectedSources });
       setSelected(report); setContent(report.content); setReports(old => [report, ...old]); setPreview(false); setNotice("已生成并保存新版本，历史周报保留");
     } catch (cause) { setError(String(cause)); } finally { setBusy(false); }
   };
@@ -67,8 +69,9 @@ export function WeeklyReportModal({ onClose }: { onClose: () => void }) {
     {(error || loadError) && <div className="qa-error" role="alert">{error || loadError}</div>}
     {notice && <div className="capture-hint" role="status">{notice}</div>}
     <details className="report-sources"><summary>待汇总材料 · {material?.sources.length ?? 0} 条{material ? ` · 截至 ${material.weekEnd}` : ""}</summary>
+      <p>取消勾选不相关材料；活动登记和文件关联不自动代表已完成成果。</p>
       {material?.warnings.map(w => <p className="source-warning" key={w}>{w}</p>)}
-      {material?.sources.map(s => <details key={`${s.sourceType}:${s.id}`}><summary>{s.date} · {s.title}</summary><pre>{s.content}</pre></details>)}
+      {material?.sources.map(s => { const key = `${s.sourceType}:${s.id}`; return <div key={key}><label><input type="checkbox" aria-label={`纳入周报：${s.title}`} checked={!excluded.has(key)} disabled={busy} onChange={e => setExcluded(old => { const next = new Set(old); if(e.target.checked) next.delete(key); else next.add(key); return next; })} />纳入周报</label><details><summary>{s.date} · {s.title}</summary><pre>{s.content}</pre></details></div>; })}
       {material && !material.sources.length && <p>当前范围没有材料，可先在工作台记下一条工作进展。</p>}
     </details>
     {!!reports.length && <label className="report-history">周报档案<select aria-label="周报档案" disabled={busy} value={selected?.id || ""} onChange={e => { const r = reports.find(r => r.id === e.target.value); if (r) choose(r); }}><option value="" disabled>选择已保存的周报</option>{reports.map(r => <option key={r.id} value={r.id}>{r.weekStart} · {data.projects.find(p => p.id === r.projectId)?.name || "全部项目"} · {new Date(r.createdAt).toLocaleString("zh-CN")}</option>)}</select></label>}

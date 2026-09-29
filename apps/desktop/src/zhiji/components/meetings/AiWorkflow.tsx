@@ -1,4 +1,5 @@
-import { Download, LoaderCircle, Mic, Settings, Sparkles, UsersRound } from "lucide-react";
+import { Download, Info, LoaderCircle, Mic, Settings, Sparkles, UsersRound } from "lucide-react";
+import { Tooltip } from "../ui";
 import type {
   AsrEngineSettings,
   LocalAsrStatus,
@@ -43,36 +44,45 @@ export function AiWorkflow({
     processing === "transcribing" || processing === "speakerTranscribing";
   // 本地实时会议引擎会同时完成高精度转写和说话人分离；轻量模型作为低配置电脑的回退。
   const handleTranscribe = speakerReady ? onTranscribeWithSpeakers : onTranscribe;
+  // 进行中的状态必须常显（用户要看到「正在转写」这类实时反馈）；
+  // 就绪态的长篇说明只在悬停「说明」图标时弹出，避免常驻占掉一行。
+  const statusText = autoTranscribing
+    ? cloud
+      ? "录音已保存，正在云端转写，请稍候…"
+      : "录音已保存，正在本地转写并区分说话人，请稍候…"
+    : processing === "installingSpeaker"
+      ? "首次安装约需 2–5 分钟；正在后台下载组件，请勿关闭知记。"
+      : transcribing
+        ? cloud
+          ? "正在云端转写，录音按你的配置上传处理…"
+          : speakerReady
+            ? "正在本地转写并区分说话人…"
+            : "正在本地转写…"
+        : null;
+  const readyText = cloud
+    ? engineReady
+      ? "云端转写已就绪：速度快、不占本机算力；整场录音会发送给你配置的服务商。"
+      : "请在设置中配置云端转写密钥，录音后即可自动转写。"
+    : asrStatus.installed
+      ? speakerReady
+        ? "点击「开始转写」会一次性完成转写与说话人分离。"
+        : "点击「开始转写」即可；安装实时会议引擎后还能边录边出字幕并区分发言人。"
+      : "请先在设置中下载本地中文语音模型，录音后即可自动转写。";
   return (
     <div className="ai-workflow">
       <div className="ai-flow-copy">
         <Sparkles size={18} />
-        <span>
+        <span className="ai-flow-title">
           <strong>录音即转写 · 智能纪要</strong>
-          <small>
-            {autoTranscribing
-              ? cloud
-                ? "录音已保存，正在云端转写，请稍候…"
-                : "录音已保存，正在本地转写并区分说话人，请稍候…"
-              : processing === "installingSpeaker"
-                ? "首次安装约需 2–5 分钟；正在后台下载组件，请勿关闭知记。"
-                : transcribing
-                  ? cloud
-                    ? "正在云端转写，录音按你的配置上传处理…"
-                    : speakerReady
-                      ? "正在本地转写并区分说话人…"
-                      : "正在本地转写…"
-                  : cloud
-                    ? engineReady
-                      ? "云端转写已就绪：速度快、不占本机算力；整场录音会发送给你配置的服务商。"
-                      : "请在设置中配置云端转写密钥，录音后即可自动转写。"
-                    : asrStatus.installed
-                      ? speakerReady
-                        ? "点击「开始转写」会一次性完成转写与说话人分离。"
-                        : "点击「开始转写」即可；安装实时会议引擎后还能边录边出字幕并区分发言人。"
-                      : "请先在设置中下载本地中文语音模型，录音后即可自动转写。"}
-          </small>
+          {statusText ? <small role="status">{statusText}</small> : null}
         </span>
+        {statusText ? null : (
+          <Tooltip label={readyText}>
+            <span className="ai-flow-info" tabIndex={0} role="img" aria-label={readyText}>
+              <Info size={14} />
+            </span>
+          </Tooltip>
+        )}
       </div>
       <div className="ai-flow-actions">
         {autoTranscribing ? (
