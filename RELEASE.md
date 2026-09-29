@@ -1,6 +1,6 @@
 # 知记发布手册
 
-最后核对：2026-09-28。以当前 [Desktop CI](.github/workflows/build-desktop.yml) 和 [Tauri 配置](apps/desktop/src-tauri/tauri.conf.json) 为准。历史排障与版本记录已移入 [归档](docs/archive/2026-09-28/发布手册-旧版.md)。所有命令在知记仓库根目录执行。
+最后核对：2026-09-29。以当前 [Desktop CI](.github/workflows/build-desktop.yml) 和 [Tauri 配置](apps/desktop/src-tauri/tauri.conf.json) 为准。历史排障与版本记录已移入 [归档](docs/archive/2026-09-28/发布手册-旧版.md)。所有命令在知记仓库根目录执行。
 
 ## 当前构建流程
 
@@ -16,7 +16,7 @@
    - [tauri.conf.json](apps/desktop/src-tauri/tauri.conf.json) 的根级 version。
    - [Cargo.toml](apps/desktop/src-tauri/Cargo.toml) 的 zhiji-desktop package version。
    - [Cargo.lock](Cargo.lock) 中 name = "zhiji-desktop" 对应的 version。
-3. 更新工作流中 releaseBody 的版本与说明。当前文本仍固定为 2.0.10；下次发版前必须改成本次实际交付内容。
+3. 更新工作流中 releaseBody 的版本与说明，改成这次实际交付的内容。它不会跟着 tag 自动变，忘了改就会出现「Release 标题是 v2.1.0、正文还在讲 2.0.10」这种对不上的情况。发布前用 `grep -n "releaseBody" -A 20 .github/workflows/build-desktop.yml` 核对一遍。
 4. 核对 GitHub Secret TAURI_SIGNING_PRIVATE_KEY、对应密码配置与 plugins.updater.pubkey 的配对关系。当前工作流传入空密码；如密钥使用密码，工作流须引用相应 Secret。不要输出、提交或写入文档中的私钥正文。
 5. 确认 bundle.createUpdaterArtifacts 已开启，更新端点有效，capabilities 包含 updater / process 所需权限。
 
