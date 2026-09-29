@@ -41,6 +41,27 @@ git push origin vX.Y.Z
 
 等待 tag 对应的 Desktop CI 完成。仅本地构建或非 tag 工作流通过不表示正式包已发布。
 
+## 查看构建状态（本机无 gh CLI）
+
+仓库是 public，直接走 REST API 即可，无需 token。列出某分支最近几次运行：
+
+```bash
+curl -s "https://api.github.com/repos/fagnxia113/zhiji/actions/runs?branch=codex/personal-workbench-mcp&per_page=10"
+```
+
+拿某次运行的 job 与每步结论（定位红在哪一步最快）：
+
+```bash
+curl -s "https://api.github.com/repos/fagnxia113/zhiji/actions/runs/<run_id>/jobs"
+```
+
+两个坑：
+
+- 按提交筛选用 `head_sha` 时必须给**完整** SHA，传短 SHA 会返回空列表。
+- `GET /actions/jobs/<job_id>/logs` **拿不到日志**，未认证返回 403「Must have admin rights」；`check-runs` 的 annotations 只有 Node 20 弃用之类的 warning，不含测试失败信息。要看失败输出只能人工打开 run 页面展开那一步。
+
+本地没有任何 Rust 工具链，`cargo test` 无法复现；而且 `cargo check` **不编译 `#[cfg(test)]` 代码**，所以「Check desktop native code」这步绿不代表测试代码能编译。改过 `apps/desktop/src-tauri/src/storage_tests.rs` 就只能等 CI 验证。
+
 ## 发布后验证
 
 - [ ] Release 对应正确 tag / 提交，说明与实际交付一致。
