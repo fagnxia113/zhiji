@@ -46,8 +46,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check maintained documentation links
+        run: pnpm docs:check
+
       - name: Check desktop frontend
         run: pnpm --filter @zhiji/desktop build
+
+      - name: Test project schema and progress history
+        run: node tests/project-hub-schema.spec.mjs
 
       - name: Install browser for UI regression tests
         run: pnpm exec playwright install chromium

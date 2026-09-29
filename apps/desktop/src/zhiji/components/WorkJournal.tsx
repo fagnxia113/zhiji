@@ -3,7 +3,8 @@ import { Archive, ArchiveRestore, ArrowUpRight, Check, FolderPlus, Pencil, Plus,
 import { kinds, statuses, useWorkbench, workbenchCall, type WorkEntry } from "../workbench";
 import type { Workspace } from "../types";
 import { localDateKey } from "../workflow";
-import { IconButton, Tooltip } from "./ui";
+import { Dialog, IconButton, Tooltip } from "./ui";
+import { ProjectHub } from "./ProjectHub";
 
 const draftKey = "zhiji:work-entry-draft";
 const fresh = () => ({ id: crypto.randomUUID() as string, content: "", kind: "progress", status: "in_progress", occurredOn: localDateKey(new Date()), projectId: "", sourceLabel: "随手记" });
@@ -23,6 +24,7 @@ export function WorkJournal({ workspace, compact = false, onOpen, onMeeting }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [history, setHistory] = useState<{ sequence: number; recordedAt: string; entry: WorkEntry }[] | null>(null);
   useEffect(() => { try { localStorage.setItem(draftKey, JSON.stringify(draft)); } catch { setError("临时草稿无法缓存，请及时保存工作记录。"); } }, [draft]);
   const edit = (patch: Partial<Draft>) => { setDraft(d => ({ ...d, ...patch })); setSaved(false); };
   const perform = async (operation: () => Promise<void>) => {
@@ -81,10 +83,13 @@ export function WorkJournal({ workspace, compact = false, onOpen, onMeeting }: {
         })()}
       </form>
     </>}
+    {!compact && (filter && data.projects.find(p => p.id === filter)
+      ? <ProjectHub key={filter} project={data.projects.find(p => p.id === filter)!} workspace={workspace} onChanged={refresh} onMeeting={onMeeting} />
+      : <p className="capture-hint">选择一个项目，集中查看活动、关联本地资料并记录进展。</p>)}
     <div className="work-entry-list">
       {shown.slice(0, compact ? 3 : shown.length).map(entry => <article className="work-entry" key={entry.id}>
         <div className="work-entry-meta"><time>{entry.occurredOn}</time><span>{kinds[entry.kind]}</span><span className={`work-status ${entry.status}`}>{statuses[entry.status]}</span><span>{data.projects.find(p => p.id === entry.projectId)?.name || "未归属项目"}</span></div>
-        <p>{entry.content}</p><footer><small>{entry.sourceLabel || "随手记"}</small><IconButton icon={Pencil} size={14} label={`编辑记录：${entry.content.slice(0, 30)}`} disabled={busy} onClick={() => selectEntry(entry)} /></footer>
+        <p>{entry.content}</p><footer><small>{entry.sourceLabel || "随手记"}</small><div className="hub-actions"><button className="ghost-button" disabled={busy} onClick={() => void perform(async () => { setHistory(await workbenchCall("entry_history", { entryId: entry.id })); })}>修改历史</button><IconButton icon={Pencil} size={14} label={`编辑记录：${entry.content.slice(0, 30)}`} disabled={busy} onClick={() => selectEntry(entry)} /></div></footer>
       </article>)}
       {!shown.length && <p className="journal-empty">{loading ? "正在读取记录…" : "还没有符合条件的记录。完成一件事后，记下一句话即可。"}</p>}
     </div>
@@ -93,5 +98,6 @@ export function WorkJournal({ workspace, compact = false, onOpen, onMeeting }: {
       {workspace.meetings.filter(m => !filter || data.links[`meeting:${m.id}`] === filter).map(m => <div className="project-material-row" key={m.id}><button className="ghost-button" onClick={() => onMeeting?.(m.id)}>{m.title}</button>{projectSelect(data.links[`meeting:${m.id}`] || "", projectId => void perform(async () => { await workbenchCall("link_project", { entityType: "meeting", entityId: m.id, projectId: projectId || null }); }), `会议项目：${m.title}`)}</div>)}
       {workspace.tasks.filter(t => !filter || (data.links[`task:${t.id}`] || (t.sourceType === "meeting" ? data.links[`meeting:${t.sourceId}`] : "")) === filter).map(t => <div className="project-material-row" key={t.id}><span>{t.completed ? "已完成" : "待办"} · {t.title}</span>{projectSelect(data.links[`task:${t.id}`] || "", projectId => void perform(async () => { await workbenchCall("link_project", { entityType: "task", entityId: t.id, projectId: projectId || null }); }), `待办项目：${t.title}`)}</div>)}
     </details>}
+    {history && <Dialog onClose={() => setHistory(null)} ariaLabel="工作记录修改历史" className="entry-history"><div className="modal-head"><h2>修改历史</h2><button className="ghost-button" onClick={() => setHistory(null)}>关闭</button></div><p className="capture-hint">修改保留旧版本；新一周的进展请新增记录，不要覆盖上一周的工作。</p>{history.map(h => <article key={h.sequence}><small>{h.recordedAt} · 发生于 {h.entry.occurredOn} · {statuses[h.entry.status]}</small><p>{h.entry.content}</p></article>)}{!history.length && <p>此记录来自旧版备份，尚无修改历史。</p>}</Dialog>}
   </section>;
 }

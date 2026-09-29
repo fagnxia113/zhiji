@@ -11,6 +11,7 @@ use uuid::Uuid;
 mod recorder;
 mod live_session;
 mod workbench;
+mod project_hub;
 mod local_api;
 pub use local_api::run_mcp_stdio;
 
