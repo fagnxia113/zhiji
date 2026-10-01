@@ -1,44 +1,16 @@
-/* 整体布局：app-shell / title-bar / sidebar / main-content / page-header / toast */
+/* 标准窗口标题栏由系统绘制；这里仅布局客户区内容。 */
 
 .app-shell {
   height: 100vh;
   display: grid;
-  grid-template: 36px 1fr / var(--rail-w) 1fr;
+  grid-template: minmax(0, 1fr) / var(--rail-w) minmax(0, 1fr);
   background: var(--bg-app);
 }
 
-/* —— 顶部标题栏（Tauri drag-region，Mica 半透明 + 毛玻璃）—— */
-.title-bar {
-  grid-column: 1 / -1;
-  height: 36px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-left: var(--space-3);
-  color: var(--text-muted);
-  background: var(--mica);
-  backdrop-filter: blur(20px) saturate(125%);
-  -webkit-backdrop-filter: blur(20px) saturate(125%);
-  border-bottom: 1px solid var(--border-subtle);
-  font-size: 12px;
-  user-select: none;
-}
-
-.window-controls { height: 36px; display: flex; }
-.window-controls button {
-  width: 46px;
-  border: 0;
-  display: grid;
-  place-items: center;
-  color: var(--text-muted);
-  background: transparent;
-  transition: background var(--dur-fast) var(--ease-out);
-}
-.window-controls button:hover { background: var(--bg-inset); }
-.window-controls .close-window:hover { color: white; background: var(--danger); }
-
 /* —— 图标栏（微信风：窄栏 + 圆形图标，无头像，+ 在顶，设置在底）—— */
 .icon-rail {
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -131,6 +103,7 @@
 /* —— 主内容区 —— */
 .main-content {
   position: relative;
+  min-height: 0;
   min-width: 0;
   overflow: auto;
   padding: var(--space-6) var(--space-8) var(--space-8);

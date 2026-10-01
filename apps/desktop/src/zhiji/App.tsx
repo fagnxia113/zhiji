@@ -99,7 +99,6 @@ import {
   TaskComposer,
   TaskRow,
   Tasks,
-  TitleBar,
   Tooltip,
   UpdateModal,
   WeeklyReportModal,
@@ -731,7 +730,7 @@ export function App() {
       }
       if (!localStorage.getItem("zhiji:tray-hint-shown")) {
         localStorage.setItem("zhiji:tray-hint-shown", "1");
-        notify("知记已最小化到托盘并在后台运行；退出请右键托盘图标选「退出」。");
+        notify("窗口已收起到系统托盘，知记仍在后台运行；退出请右键托盘图标选「退出」。");
       }
       void invoke("trace_close_js", { message: "JS handler complete" }).catch(() => {});
     }).then((dispose) => {
@@ -1905,7 +1904,7 @@ export function App() {
       </div>
     );
 
-  if (startupError) return <div className="app-shell"><TitleBar /><main className="startup-error" style={{ gridColumn: "1 / -1" }} role="alert">
+  if (startupError) return <div className="app-shell"><main className="startup-error" style={{ gridColumn: "1 / -1" }} role="alert">
     <FolderOpen size={32} />
     <h1>暂时无法打开工作台</h1>
     <p>本地资料库或录音恢复未能完成。请确认数据目录可访问、磁盘空间充足，然后重试。</p>
@@ -1929,7 +1928,6 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <TitleBar />
       <aside className="icon-rail">
         <button className="rail-brand" title="返回工作台" onClick={() => setView("home")}>
           <span>记</span>

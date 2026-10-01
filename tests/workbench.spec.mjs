@@ -16,13 +16,12 @@ await page.addInitScript(installFixture);
 try {
   await page.goto(process.env.TEST_URL || "http://127.0.0.1:1422");
   await page.getByRole("heading", { name: "工作台", exact: true }).waitFor();
-  await page.getByRole("button", { name: "关闭并收起到托盘", exact: true }).click();
-  assert.equal(await page.evaluate(() => window.__fixture.calls.includes("plugin:window|close")), true);
-  await page.evaluate(() => { window.__fixture.failWindow = true; });
-  await page.getByRole("button", { name: "关闭并收起到托盘", exact: true }).click();
-  await page.getByText(/窗口操作失败/).waitFor();
-  await page.evaluate(() => { window.__fixture.failWindow = false; });
-  await page.getByRole("button", { name: "关闭并收起到托盘", exact: true }).click();
+  // The OS supplies the caption buttons; the client must not show a second title bar.
+  assert.equal(await page.locator(".title-bar, .window-controls").count(), 0);
+  assert.equal(await page.locator(".icon-rail").evaluate(el => el.getBoundingClientRect().top), 0);
+  await page.evaluate(() => window.__fixture.emit("tauri://close-requested"));
+  await page.waitForFunction(() => window.__fixture.calls.includes("plugin:window|hide"));
+  assert.equal(await page.evaluate(() => window.__fixture.calls.includes("plugin:window|destroy")), false);
   await page.screenshot({ path: decodeURIComponent(output) + "workbench-light.png", fullPage: true });
   await page.getByRole("button", { name: "1 今天到期", exact: true }).click();
   assert.equal(await page.locator(".task-row").count(), 1);
@@ -51,6 +50,9 @@ try {
   await page.locator(".meeting-item").first().click();
   await page.screenshot({ path: decodeURIComponent(output) + "meeting-light.png", fullPage: true });
   await page.getByRole("textbox", { name: "完整原文", exact: true }).fill("退出前必须保存的原文");
+  await page.evaluate(() => window.__fixture.emit("tauri://close-requested"));
+  await page.waitForFunction(() => window.__fixture.workspace.meetings[0].transcript === "退出前必须保存的原文");
+  assert.equal(await page.evaluate(() => window.__fixture.calls.includes("plugin:window|destroy")), false);
   await page.evaluate(() => window.__fixture.emit("zhiji://request-exit"));
   await page.waitForFunction(() => window.__fixture.calls.includes("finish_app_exit"));
   assert.equal(await page.evaluate(() => window.__fixture.workspace.meetings[0].transcript), "退出前必须保存的原文");
@@ -147,8 +149,14 @@ try {
   await page.setViewportSize({ width: 400, height: 800 });
   assert.equal(await page.evaluate(() => document.querySelector(".main-content").scrollWidth <= document.querySelector(".main-content").clientWidth), true);
   await page.screenshot({ path: decodeURIComponent(output) + "workbench-narrow.png", fullPage: true });
+  await page.setViewportSize({ width: 1000, height: 560 });
+  await page.getByRole("button", { name: "设置", exact: true }).scrollIntoViewIfNeeded();
+  const rail = await page.locator(".icon-rail").evaluate(el => ({ height: el.clientHeight, bottom: el.getBoundingClientRect().bottom }));
+  assert.ok(rail.height <= 560 && rail.bottom <= 560, "short windows must keep navigation inside the client area");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("heading", { name: "设置", exact: true, level: 1 }).waitFor();
   assert.deepEqual(errors, []);
-  console.log("PASS: close command/error feedback, exit flush, dashboard navigation, task save failure/retry, owner editing, meeting filters, compact done-state chrome, single minutes-generate entry, split pane width/stack fallback, notes drawer autosave/focus, lightweight speaker labels with folded timestamps, GFM table rendering, de-duplicated pane titles, dialog keyboard focus, 400px layout; no page errors.");
+  console.log("PASS: native close event flush/preserve window, no duplicate caption, short-window navigation, exit flush, dashboard navigation, task save failure/retry, owner editing, meeting filters, compact done-state chrome, single minutes-generate entry, split pane width/stack fallback, notes drawer autosave/focus, lightweight speaker labels with folded timestamps, GFM table rendering, de-duplicated pane titles, dialog keyboard focus, 400px layout; no page errors.");
   for (const options of [{ failStartup: true }, { failSettings: true }, { empty: true }]) {
     const statePage = await context.newPage();
     await statePage.addInitScript(installFixture, options);

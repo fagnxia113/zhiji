@@ -15,13 +15,16 @@
       {
         "label": "main",
         "title": "知记 - 个人工作台",
-        "width": 1440,
-        "height": 900,
+        "width": 1200,
+        "height": 700,
         "minWidth": 400,
-        "minHeight": 720,
+        "minHeight": 560,
         "center": true,
-        "decorations": false,
+        "decorations": true,
         "resizable": true,
+        "minimizable": true,
+        "maximizable": true,
+        "closable": true,
         "additionalBrowserArgs": "--disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=IntensiveWakeUpThrottling"
       }
     ],

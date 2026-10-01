@@ -40,7 +40,14 @@ try {
     $script:ZhijiUser32 = Add-Type -Namespace ZhijiSmoke -Name User32 -PassThru -MemberDefinition @'
 [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool IsWindowVisible(System.IntPtr hWnd);
 [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool IsWindow(System.IntPtr hWnd);
-'@
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern int GetWindowLong(System.IntPtr hWnd, int index);
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool IsZoomed(System.IntPtr hWnd);
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool IsIconic(System.IntPtr hWnd);
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool PostMessage(System.IntPtr hWnd, uint message, System.IntPtr wParam, System.IntPtr lParam);
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool GetWindowRect(System.IntPtr hWnd, out Rect rect);
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool SetWindowPos(System.IntPtr hWnd, System.IntPtr after, int x, int y, int width, int height, uint flags);
+'@ | Where-Object FullName -eq 'ZhijiSmoke.User32'
 } catch {
     Write-Output "Diagnostics: user32 P/Invoke unavailable ($_); falling back to Process.MainWindowHandle"
 }
@@ -56,6 +63,23 @@ function Test-ZhijiWindowExists {
     param([IntPtr] $Handle)
     if ($script:ZhijiUser32) { return $script:ZhijiUser32::IsWindow($Handle) }
     return $true
+}
+
+function Wait-ZhijiWindowState {
+    param([IntPtr] $Handle, [ValidateSet('maximized', 'minimized', 'restored')][string] $State)
+    $deadline = (Get-Date).AddSeconds(10)
+    do {
+        $maximized = $script:ZhijiUser32::IsZoomed($Handle)
+        $minimized = $script:ZhijiUser32::IsIconic($Handle)
+        $matches = switch ($State) {
+            'maximized' { $maximized -and -not $minimized }
+            'minimized' { $minimized }
+            'restored' { -not $maximized -and -not $minimized }
+        }
+        if ($matches -and $script:ZhijiUser32::IsWindowVisible($Handle)) { return }
+        Start-Sleep -Milliseconds 200
+    } while ((Get-Date) -lt $deadline)
+    throw "Window did not enter the expected $State state."
 }
 
 function Show-TraceLogs {
@@ -145,6 +169,27 @@ try {
     # value it resolves and Refresh() does not clear it, so it keeps reporting the
     # pre-close handle even after the app hides the window.
     $taskHwnd = $taskApp.MainWindowHandle
+    if (-not $script:ZhijiUser32) { throw 'Win32 inspection is required to verify standard window controls.' }
+    $taskStyle = $script:ZhijiUser32::GetWindowLong($taskHwnd, -16)
+    # WS_CAPTION, WS_SYSMENU, WS_THICKFRAME, WS_MINIMIZEBOX, WS_MAXIMIZEBOX.
+    foreach ($taskFlag in @(0x00C00000, 0x00080000, 0x00040000, 0x00020000, 0x00010000)) {
+        if (($taskStyle -band $taskFlag) -ne $taskFlag) { throw "Standard window style missing: $taskFlag (style $taskStyle)." }
+    }
+    # WM_SYSCOMMAND drives the same native operations as the caption controls.
+    foreach ($taskTransition in @(@{ Command = 0xF030; State = 'maximized' }, @{ Command = 0xF120; State = 'restored' }, @{ Command = 0xF020; State = 'minimized' }, @{ Command = 0xF120; State = 'restored' })) {
+        if (-not $script:ZhijiUser32::PostMessage($taskHwnd, 0x0112, [IntPtr]$taskTransition.Command, [IntPtr]::Zero)) { throw 'Could not send system window command.' }
+        Wait-ZhijiWindowState -Handle $taskHwnd -State $taskTransition.State
+    }
+    $taskRect = New-Object 'ZhijiSmoke.User32+Rect'
+    if (-not $script:ZhijiUser32::GetWindowRect($taskHwnd, [ref]$taskRect)) { throw 'Cannot read original window size.' }
+    $taskOriginalWidth = $taskRect.Right - $taskRect.Left
+    $taskOriginalHeight = $taskRect.Bottom - $taskRect.Top
+    if (-not $script:ZhijiUser32::SetWindowPos($taskHwnd, [IntPtr]::Zero, 0, 0, 1000, 650, 0x0016)) { throw 'Cannot resize window.' }
+    Start-Sleep -Milliseconds 500
+    if (-not $script:ZhijiUser32::GetWindowRect($taskHwnd, [ref]$taskRect)) { throw 'Cannot read resized window.' }
+    if (($taskRect.Right - $taskRect.Left) -ne 1000 -or ($taskRect.Bottom - $taskRect.Top) -ne 650) { throw 'Window did not accept the requested size.' }
+    if (-not $script:ZhijiUser32::SetWindowPos($taskHwnd, [IntPtr]::Zero, 0, 0, $taskOriginalWidth, $taskOriginalHeight, 0x0016)) { throw 'Cannot restore original window size.' }
+    Write-Output 'PASS: native caption, system menu, maximize/restore, minimize/restore and resizing.'
     Write-Output "Closing actual workbench: PID $($taskApp.Id), HWND $taskHwnd"
     if (-not $taskApp.CloseMainWindow()) { throw 'Windows could not send the close request.' }
     $taskHidden = $false

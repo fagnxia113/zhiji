@@ -112,7 +112,6 @@ export function installFixture({ failStartup = false, failSettings = false, empt
       if (command === "plugin:updater|check") return null;
       if (command === "plugin:event|listen") { const id = ++callbackId; listeners.set(id, args); return id; }
       if (command === "plugin:event|unlisten") { listeners.delete(args.eventId); return null; }
-      if (command === "plugin:window|close" && window.__fixture.failWindow) throw Error("测试：窗口操作权限不足");
       if (command.startsWith("plugin:window|")) return null;
       if (command === "finish_app_exit") return null;
       if (command === "plugin:autostart|is_enabled") return false;

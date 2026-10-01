@@ -5,7 +5,7 @@
 ## 当前构建流程
 
 - 推送到 main、codex/**、refactor/**，向 main 提 PR，或手动触发工作流，会运行前端、界面、Rust 和引擎检查。
-- 非 tag 运行构建候选 NSIS 包，执行原生关闭窗口冒烟测试并上传 artifact；候选配置关闭更新签名产物，不发布 Release。
+- 非 tag 运行构建候选 NSIS 包，执行原生标题栏、最小化/最大化/还原、尺寸调整及关闭到托盘冒烟测试并上传 artifact；候选配置关闭更新签名产物，不发布 Release。
 - 推送 v* tag 时构建并发布正式包；工作流随后规范资产名，生成和核验 latest.json。tag 路径不运行候选包关闭窗口测试，应先通过同一源码的候选验收。
 - JS 使用已提交的 pnpm-lock.yaml 和 pnpm install --frozen-lockfile；Rust 使用已提交的 Cargo.lock 和 --locked。更新依赖时同步更新锁文件，不在 CI 临时绕开检查。
 
