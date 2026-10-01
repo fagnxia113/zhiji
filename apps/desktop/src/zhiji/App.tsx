@@ -71,6 +71,7 @@ import {
 import { SettingsView } from "./SettingsView";
 import { WorkbenchOverview } from "./components/WorkbenchOverview";
 import { WorkJournal } from "./components/WorkJournal";
+import { ContinueProject, ProjectsPage } from "./components/ProjectsPage";
 import type { TaskFilter } from "./components/tasks/Tasks";
 import {
   AiWorkflow,
@@ -1918,6 +1919,7 @@ export function App() {
     { id: "home", label: "转到首页", icon: <House size={16} />, run: () => setView("home") },
     { id: "meetings", label: "转到会议", icon: <UsersRound size={16} />, run: () => setView("meetings") },
     { id: "tasks", label: "转到待办", icon: <CheckCircle2 size={16} />, run: () => setView("tasks") },
+    { id: "projects", label: "转到项目", icon: <FolderOpen size={16} />, run: () => setView("projects") },
     { id: "settings", label: "打开设置", icon: <Settings size={16} />, run: () => setView("settings") },
   ];
   const activeRecordingMeeting = activeRecordingMeetingId
@@ -1938,13 +1940,14 @@ export function App() {
           <span>新建</span>
         </button>
         <nav className="rail-nav">
-          <RailItem active={view === "journal"} icon={<Pencil size={20} />} title="工作记录" onClick={() => setView("journal")} />
           <RailItem
             active={view === "home"}
             icon={<House size={20} />}
             title="工作台"
             onClick={() => setView("home")}
           />
+          <RailItem active={view === "projects"} icon={<FolderOpen size={20} />} title="项目" onClick={() => setView("projects")} />
+          <RailItem active={view === "journal"} icon={<Pencil size={20} />} title="工作记录" onClick={() => setView("journal")} />
           <RailItem
             active={view === "meetings"}
             icon={<UsersRound size={20} />}
@@ -2083,6 +2086,7 @@ export function App() {
             onSettings={() => setView("settings")}
             onReport={() => setWeeklyReportOpen(true)}
             onJournal={() => setView("journal")}
+            onProjects={() => setView("projects")}
           />
         )}
         {view === "meetings" && (
@@ -2129,6 +2133,7 @@ export function App() {
           />
         )}
         {view === "journal" && <WorkJournal workspace={workspace} onMeeting={id => { const m = workspace.meetings.find(m => m.id === id); if (m) { void selectMeeting(m); setView("meetings"); } }} />}
+        {view === "projects" && <ProjectsPage workspace={workspace} onMeeting={id => { const m = workspace.meetings.find(m => m.id === id); if (m) { void selectMeeting(m); setView("meetings"); } }} />}
         {view === "tasks" && (
           <Tasks
             key={taskFilter}
@@ -2301,7 +2306,7 @@ function Home({
   onOpenPalette,
   onOpenTasks,
   onOpenMeetings,
-  aiReady, transcriptionReady, onSettings, onReport, onJournal,
+  aiReady, transcriptionReady, onSettings, onReport, onJournal, onProjects,
 }: {
   workspace: Workspace;
   onMeeting: () => void;
@@ -2315,6 +2320,7 @@ function Home({
   onSettings: () => void;
   onReport: () => void;
   onJournal: () => void;
+  onProjects: () => void;
 }) {
   const openTasks = workspace.tasks.filter((task) => !task.completed);
   const overdue = openTasks.filter((task) => taskDueState(task) === "overdue");
@@ -2350,6 +2356,7 @@ function Home({
       </section>
 
       <WorkbenchOverview workspace={workspace} aiReady={aiReady} transcriptionReady={transcriptionReady} onMeetings={onOpenMeetings} onTasks={() => onOpenTasks()} onSettings={onSettings} onReport={onReport} />
+      <ContinueProject onOpen={onProjects} />
       <WorkJournal workspace={workspace} compact onOpen={onJournal} />
 
       {continueMeeting && (
@@ -3056,5 +3063,6 @@ const pageCopy: Record<View, { title: string; subtitle: string }> = {
   meetings: { title: "会议", subtitle: "录音、原文、纪要与行动项" },
   tasks: { title: "待办", subtitle: "集中跟进每场会议产生的行动项" },
   journal: { title: "工作记录", subtitle: "会内与会外的进展，汇成项目的完整脉络" },
+  projects: { title: "项目", subtitle: "回到手头的工作，资料与进展就在这里" },
   settings: { title: "设置", subtitle: "录音、转写、智能纪要与数据保护" },
 };

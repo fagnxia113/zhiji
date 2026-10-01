@@ -244,7 +244,7 @@ export type AnalysisPreview = {
 
 export type AnalysisResult = { meeting: Meeting; tasks: Task[] };
 
-export type View = "home" | "meetings" | "tasks" | "journal" | "settings";
+export type View = "home" | "meetings" | "tasks" | "journal" | "projects" | "settings";
 
 export type Processing =
   | "downloading"

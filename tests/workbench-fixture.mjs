@@ -26,7 +26,7 @@ export function installFixture({ failStartup = false, failSettings = false, empt
     { id: "t2", title: "提交首次使用流程方案", sourceType: "meeting", sourceId: "m1", completed: false, dueDate: date(), createdAt: `${date()}T12:00:00+08:00`, owner: "陈雨" },
     { id: "t3", title: "安排下周项目复盘", sourceType: null, sourceId: null, completed: false, dueDate: date(3), createdAt: `${date()}T12:00:00+08:00`, owner: "" },
   ] };
-  window.__fixture = { workspace, failStartup, failSettings, failTask: false, calls: [] };
+  window.__fixture = { workspace, failStartup, failSettings, failTask: false, calls: [], workCalls: [] };
   const work = { projects: [], entries: [], links: {} };
   const reports = [];
   const hub = { activities: [], resources: [], activityLinks: [], resourceLinks: [], resourceActivities: [], profiles: [] };
@@ -62,8 +62,9 @@ export function installFixture({ failStartup = false, failSettings = false, empt
         const a = args.args;
         const material = () => ({ weekStart: a.weekStart, weekEnd: a.weekStart, warnings: ["团队成果不自动视为个人成果"], sources: work.entries.filter(e => !a.projectId || e.projectId === a.projectId).map(e => ({ id: e.id, sourceType: "entry", title: e.content, date: e.occurredOn, projectId: e.projectId, content: `${e.content} · ${e.status}` })).concat(workspace.meetings.filter(m => !a.projectId || work.links[`meeting:${m.id}`] === a.projectId).map(m => ({ id: m.id, sourceType: "meeting", title: m.title, date: m.startedAt.slice(0, 10), projectId: null, content: m.minutes || m.transcript }))) });
         if (args.action === "load") return structuredClone(work);
-        if (args.action === "load_project_hub") return visibleHub(a.projectId);
-        if (args.action === "save_project_profile") { const i=hub.profiles.findIndex(p=>p.projectId===a.projectId); if(i<0) hub.profiles.push(a); else hub.profiles[i]=a; return true; }
+        window.__fixture.workCalls.push({action:args.action,args:structuredClone(a)});
+        if (args.action === "load_project_hub") { if (window.__fixture.failHub && a.projectId) throw Error("测试：项目读取失败"); if (window.__fixture.failCatalog && !a.projectId) throw Error("测试：目录读取失败"); return visibleHub(a.projectId); }
+        if (args.action === "save_project_profile") { const i=hub.profiles.findIndex(p=>p.projectId===a.projectId); if(i<0) hub.profiles.push(a); else hub.profiles[i]=a; if(window.__fixture.failHubAfterWrite) window.__fixture.failHub=true; return true; }
         if (args.action === "save_activity") { if(window.__fixture.failActivity) throw Error("测试：活动保存失败"); hub.activities.push({...a,meetingId:a.meetingId||null}); hub.activityLinks.push({activityId:a.id,projectId:a.projectId}); return true; }
         if (args.action === "link_activity") { hub.activityLinks.push({activityId:a.activityId,projectId:a.projectId}); return true; }
         if (["register_resource","link_resource","unlink_resource"].includes(args.action)) {

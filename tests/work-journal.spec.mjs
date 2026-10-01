@@ -13,8 +13,10 @@ try {
   await page.getByRole("textbox", { name: "工作内容", exact: true }).fill("客户报价已提交，等待确认");
   await page.getByRole("button", { name: "全部记录", exact: true }).click();
   assert.equal(await page.getByRole("textbox", { name: "工作内容" }).inputValue(), "客户报价已提交，等待确认");
+  await page.getByText("管理项目", { exact: true }).click();
   await page.getByRole("textbox", { name: "新项目名称" }).fill("客户交付");
   await page.getByRole("button", { name: "创建项目", exact: true }).click();
+  await page.getByText("补充项目、分类与日期", { exact: true }).click();
   await page.getByRole("combobox", { name: "所属项目", exact: true }).selectOption({ label: "客户交付" });
   await page.getByRole("combobox", { name: "工作状态", exact: true }).selectOption("waiting");
   await page.evaluate(() => { window.__fixture.failEntry = true; });

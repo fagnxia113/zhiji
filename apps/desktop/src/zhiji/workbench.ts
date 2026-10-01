@@ -17,8 +17,8 @@ export function useWorkbench() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const refresh = useCallback(async () => {
-    try { setData(await workbenchCall<WorkbenchData>("load")); setError(""); }
-    catch (cause) { setError(String(cause)); }
+    try { setData(await workbenchCall<WorkbenchData>("load")); setError(""); return true; }
+    catch (cause) { setError(String(cause)); return false; }
     finally { setLoading(false); }
   }, []);
   useEffect(() => {

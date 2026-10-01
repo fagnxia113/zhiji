@@ -9,6 +9,7 @@ await page.addInitScript(installFixture);
 try {
   await page.goto(process.env.TEST_URL || "http://127.0.0.1:1422");
   await page.getByRole("button",{name:"全部记录",exact:true}).click();
+  await page.getByText("管理项目",{exact:true}).click();
   for (const name of ["专题调研","成果汇报"]) {
     await page.getByRole("textbox",{name:"新项目名称"}).fill(name);
     await page.getByRole("button",{name:"创建项目",exact:true}).click();
@@ -17,6 +18,7 @@ try {
   const select=page.getByRole("combobox",{name:"筛选项目"});
   await select.selectOption({label:"专题调研"});
   const hub=page.getByRole("region",{name:"项目详情"});
+  await hub.getByText("编辑目标与阶段",{exact:true}).click();
   await hub.getByRole("textbox",{name:"项目目标"}).fill("形成调研报告与汇报材料");
   await hub.getByRole("textbox",{name:"项目阶段"}).fill("初稿评审");
   await hub.getByRole("button",{name:"保存目标与阶段"}).click();
