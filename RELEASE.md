@@ -1,6 +1,6 @@
 # 知记发布手册
 
-最后核对：2026-09-29。以当前 [Desktop CI](.github/workflows/build-desktop.yml) 和 [Tauri 配置](apps/desktop/src-tauri/tauri.conf.json) 为准。历史排障与版本记录已移入 [归档](docs/archive/2026-09-28/发布手册-旧版.md)。所有命令在知记仓库根目录执行。
+最后核对：2026-10-01。以当前 [Desktop CI](.github/workflows/build-desktop.yml) 和 [Tauri 配置](apps/desktop/src-tauri/tauri.conf.json) 为准。历史排障与版本记录已移入 [归档](docs/archive/2026-09-28/发布手册-旧版.md)。所有命令在知记仓库根目录执行。
 
 ## 当前构建流程
 
