@@ -23,6 +23,7 @@ try {
   await hub.getByRole("textbox",{name:"项目阶段"}).fill("初稿评审");
   await hub.getByRole("button",{name:"保存目标与阶段"}).click();
   await hub.getByText("项目目标已保存",{exact:true}).waitFor();
+  await hub.getByRole("tab",{name:"活动",exact:true}).click();
   await hub.getByText("添加活动",{exact:true}).click();
   await hub.getByRole("textbox",{name:"活动名称"}).fill("成果评审");
   await hub.getByRole("combobox",{name:"活动类型"}).selectOption("review");
@@ -33,6 +34,7 @@ try {
   await page.evaluate(()=>{window.__fixture.failActivity=false;window.__fixture.pickedFiles=["D:\\work\\报告初稿.docx"];});
   await hub.getByRole("button",{name:"保存活动",exact:true}).click();
   await hub.getByText("活动已保存，可以添加本次资料和进展",{exact:true}).waitFor();
+  await hub.getByText("添加资料",{exact:true}).click();
   await hub.getByRole("combobox",{name:"资料用途"}).selectOption("output");
   await hub.getByRole("button",{name:"选择本地文件",exact:true}).click();
   await hub.locator(".hub-resources strong").getByText("报告初稿.docx",{exact:true}).waitFor();
@@ -41,6 +43,7 @@ try {
   await hub.getByRole("textbox",{name:"搜索项目资料"}).fill("报告");
   assert.equal(await hub.locator(".hub-resources li").count(),1);
   await hub.getByRole("textbox",{name:"搜索项目资料"}).fill("");
+  await hub.getByRole("tab",{name:"进展",exact:true}).click();
   await hub.getByRole("textbox",{name:"项目进展内容"}).fill("已提交调研初稿，等待评审反馈");
   await hub.getByRole("combobox",{name:"进展状态"}).selectOption("waiting");
   await hub.getByRole("combobox",{name:"进展关联资料"}).selectOption({label:"报告初稿.docx"});
@@ -59,6 +62,7 @@ try {
   await history.getByRole("button",{name:"关闭",exact:true}).click();
   await hub.getByRole("textbox",{name:"项目进展内容"}).fill("明天继续核对数据");
   await select.selectOption({label:"成果汇报"});
+  await hub.getByRole("tab",{name:"活动",exact:true}).click();
   await hub.getByText("添加活动",{exact:true}).click();
   await hub.getByRole("combobox",{name:"复用现有活动"}).selectOption({label:"成果评审"});
   await hub.getByRole("button",{name:"关联现有活动"}).click();
@@ -66,11 +70,14 @@ try {
   assert.equal(await page.evaluate(()=>window.__fixture.hub.resources.length),1);
   assert.equal(await page.evaluate(()=>window.__fixture.hub.activities.length),1);
   await select.selectOption({label:"专题调研"});
+  await hub.getByRole("tab",{name:"进展",exact:true}).click();
   assert.equal(await hub.getByRole("textbox",{name:"项目进展内容"}).inputValue(),"明天继续核对数据");
   assert.equal(await hub.getByRole("combobox",{name:"当前活动"}).inputValue(),entry.activityId);
   assert.equal(await hub.getByRole("combobox",{name:"进展关联资料"}).inputValue(),entry.resourceId);
   await page.evaluate(()=>{window.__fixture.missingFile=true;});
-  await hub.getByRole("button",{name:"打开",exact:true}).click();
+  await hub.getByRole("tab",{name:"资料",exact:true}).click();
+  await hub.getByRole("button",{name:/报告初稿.docx/}).click();
+  await hub.getByRole("button",{name:"打开原文件",exact:true}).click();
   await hub.getByRole("alert").getByText(/文件不存在/).waitFor();
   await page.evaluate(()=>{window.__fixture.missingFile=false;window.__fixture.pickedFiles="D:\\moved\\报告初稿.docx";});
   await hub.getByRole("button",{name:"重新定位",exact:true}).click();

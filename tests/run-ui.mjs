@@ -21,7 +21,7 @@ try {
   }
   if (!ready) throw Error("UI test server did not become ready");
   const selected = process.argv.slice(2);
-  for (const file of selected.length ? selected : ["tests/workbench.spec.mjs", "tests/work-journal.spec.mjs", "tests/global-search.spec.mjs", "tests/tooltip.spec.mjs", "tests/meeting-sticky.spec.mjs", "tests/project-hub.spec.mjs", "tests/project-usability.spec.mjs"]) {
+  for (const file of selected.length ? selected : ["tests/workbench.spec.mjs", "tests/work-journal.spec.mjs", "tests/global-search.spec.mjs", "tests/tooltip.spec.mjs", "tests/meeting-sticky.spec.mjs", "tests/project-hub.spec.mjs", "tests/project-usability.spec.mjs", "tests/project-layout.spec.mjs", "tests/project-efficiency.spec.mjs"]) {
   const code = await new Promise((resolve, reject) => {
     const test = spawn(process.execPath, [file], { cwd: root, stdio: "inherit" });
     test.on("error", reject);

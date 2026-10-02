@@ -1,9 +1,19 @@
-import { useEffect, useState } from "react";
-import { statuses, useWorkbench, workbenchCall } from "../workbench";
+import { useEffect, useRef, useState } from "react";
+import { Star } from "lucide-react";
+import { useWorkbench, workbenchCall } from "../workbench";
 import type { Workspace } from "../types";
 import { ProjectHub } from "./ProjectHub";
+import { IconButton } from "./ui";
 
 const recentKey = "zhiji:last-project";
+const shortcutsKey = "zhiji:project-shortcuts";
+function projectShortcuts(): { favorites: string[]; recent: string[] } {
+  try {
+    const saved = JSON.parse(localStorage.getItem(shortcutsKey) || "null");
+    const ids = (value: unknown) => Array.isArray(value) ? [...new Set(value.filter((id): id is string => typeof id === "string" && !!id))] : [];
+    return { favorites: ids(saved?.favorites), recent: ids(saved?.recent).slice(0, 6) };
+  } catch { return { favorites: [], recent: [] }; }
+}
 export function lastProjectId() {
   try { return localStorage.getItem(recentKey) || ""; } catch { return ""; }
 }
@@ -30,9 +40,24 @@ export function ProjectsPage({ workspace, onMeeting }: { workspace: Workspace; o
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [picking, setPicking] = useState(!lastProjectId());
+  const switchButton = useRef<HTMLButtonElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const [shortcuts, setShortcuts] = useState(projectShortcuts);
+  const [shortcutError, setShortcutError] = useState("");
   const project = data.projects.find(p => p.id === selected);
+  const pickerVisible = picking || (!loading && !project);
+  useEffect(() => {
+    if (!pickerVisible || creating) return;
+    searchInput.current?.focus();
+  }, [pickerVisible, creating]);
+  useEffect(() => {
+    try { localStorage.setItem(shortcutsKey, JSON.stringify(shortcuts)); setShortcutError(""); }
+    catch { setShortcutError("收藏与最近项目暂时无法保留到下次打开，已保存的项目资料不受影响。"); }
+  }, [shortcuts]);
   useEffect(() => {
     if (!project) return;
+    setShortcuts(previous => previous.recent[0] === project.id ? previous : { ...previous, recent: [project.id, ...previous.recent.filter(id => id !== project.id)].slice(0, 6) });
     try { localStorage.setItem(recentKey, project.id); }
     catch { setError("无法记住上次项目；已保存的项目资料不受影响。"); }
   }, [project?.id]);
@@ -40,35 +65,37 @@ export function ProjectsPage({ workspace, onMeeting }: { workspace: Workspace; o
     setBusy(true); setError("");
     try {
       await workbenchCall("save_project", { id: newId, name: name.trim(), archived: false });
-      setSelected(newId); setNewId(crypto.randomUUID()); setName(""); setCreating(false); setArchived(false); setQuery("");
+      setSelected(newId); setNewId(crypto.randomUUID()); setName(""); setCreating(false); setPicking(false); setArchived(false); setQuery("");
       if (!await refresh()) setError("项目已创建，但列表刷新失败，请重新读取，无需重复创建。");
     } catch (cause) { setError(`项目未创建，名称已保留。${String(cause)}`); }
     finally { setBusy(false); }
   };
   const shown = data.projects.filter(p => (archived || !p.archived) && p.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
-  const recent = data.entries.filter(e => e.projectId === selected).sort((a, b) => b.occurredOn.localeCompare(a.occurredOn) || b.updatedAt.localeCompare(a.updatedAt));
+  const chooseProject = (id: string) => { setSelected(id); setPicking(false); switchButton.current?.focus(); };
+  const quickGroup = (label: string, ids: string[]) => {
+    const projects = ids.flatMap(id => { const p = shown.find(p => p.id === id); return p ? [p] : []; });
+    return projects.length > 0 && <section className="project-shortcuts"><h3>{label}</h3><nav aria-label={label}>{projects.map(p => <button key={p.id} aria-current={selected === p.id ? "page" : undefined} onClick={() => chooseProject(p.id)}>{p.name}{p.archived ? "（已归档）" : ""}</button>)}</nav></section>;
+  };
   return <section className="projects-page" aria-label="项目工作区">
-    <aside className="project-picker" aria-label="选择项目">
-      <div className="hub-section-heading"><h2>我的项目</h2><button className="secondary-button compact-button" aria-expanded={creating} onClick={() => setCreating(v => !v)}>新建项目</button></div>
-      {(error || loadError) && <div className="qa-error" role="alert">{error || loadError}<button disabled={busy} onClick={() => void refresh().then(ok => { if (ok) setError(""); })}>重新读取</button></div>}
+    <header className="project-workspace-toolbar"><div className="project-switch-actions"><button ref={switchButton} className="secondary-button compact-button" aria-expanded={pickerVisible} aria-controls="project-picker" onClick={() => setPicking(v => !v)}>切换项目{project ? ` · ${project.name}` : ""}</button>{project && <IconButton icon={Star} primary={shortcuts.favorites.includes(project.id)} label={shortcuts.favorites.includes(project.id) ? "取消收藏当前项目" : "收藏当前项目"} onClick={() => setShortcuts(v => ({ ...v, favorites: v.favorites.includes(project.id) ? v.favorites.filter(id => id !== project.id) : [...v.favorites, project.id] }))} />}</div><button className="ghost-button" aria-expanded={creating} onClick={() => { setPicking(true); setCreating(v => !v); }}>新建项目</button></header>
+    {shortcutError && <p className="qa-error" role="alert">{shortcutError}</p>}
+    {(error || loadError) && <div className="qa-error" role="alert">{error || loadError}<button disabled={busy} onClick={() => void refresh().then(ok => { if (ok) setError(""); })}>重新读取</button></div>}
+    <aside id="project-picker" className="project-picker" aria-label="选择项目" hidden={!pickerVisible} onKeyDown={e => { if (e.key === "Escape" && project) { e.preventDefault(); setPicking(false); switchButton.current?.focus(); } }}>
+      <div className="hub-section-heading"><h2>我的项目</h2>{project && <button className="ghost-button" onClick={() => { setPicking(false); switchButton.current?.focus(); }}>返回当前项目</button>}</div>
       {creating && <form className="hub-profile" onSubmit={e => { e.preventDefault(); void saveProject(); }}>
         <label>项目名称<input autoFocus aria-label="新项目名称" required maxLength={80} value={name} disabled={busy} onChange={e => setName(e.target.value)} /></label>
         <button className="primary-button compact-button" disabled={busy || loading || !!loadError || !name.trim()}>创建项目</button>
       </form>}
-      <input aria-label="查找项目" placeholder="查找项目" value={query} onChange={e => setQuery(e.target.value)} />
+      <input ref={searchInput} aria-label="查找项目" placeholder="查找项目" value={query} onChange={e => setQuery(e.target.value)} />
       <label className="project-archive-filter"><input type="checkbox" checked={archived} onChange={e => setArchived(e.target.checked)} />显示已归档项目</label>
-      <nav aria-label="项目列表">{shown.map(p => <button key={p.id} aria-current={selected === p.id ? "page" : undefined} onClick={() => setSelected(p.id)}><strong>{p.name}</strong><small>{p.archived ? "已归档" : "进行中"}</small></button>)}</nav>
+      {quickGroup("收藏项目", shortcuts.favorites)}
+      {quickGroup("最近项目", shortcuts.recent)}
+      <h3 className="project-list-heading">全部项目</h3>
+      <nav aria-label="项目列表">{shown.map(p => <button key={p.id} aria-current={selected === p.id ? "page" : undefined} onClick={() => chooseProject(p.id)}><strong>{p.name}</strong><small>{p.archived ? "已归档" : "进行中"}</small></button>)}</nav>
       {!shown.length && <p className="capture-hint">{loading ? "正在读取项目…" : query ? "没有匹配项目，试试其他关键词。" : "还没有项目，先为手头的工作建一个。"}</p>}
     </aside>
-    <div className="project-detail">{project
-      ? <>
-        <ProjectHub key={project.id} project={project} workspace={workspace} onChanged={refresh} onMeeting={onMeeting} />
-        <section className="project-recent" aria-label="项目最近进展"><h3>最近进展{recent.length > 5 ? " · 最近 5 条" : ""}</h3>
-          {recent.slice(0, 5).map(entry => <article key={entry.id}><small>{entry.occurredOn} · {statuses[entry.status]}</small><p>{entry.content}</p></article>)}
-          {!recent.length && <p>还没有进展记录。完成一项沟通或交付后，留下一句话即可。</p>}
-          {recent.length > 5 && <p>其余记录可在「工作记录」按项目查看。</p>}
-        </section>
-      </>
+    <div className="project-detail" hidden={pickerVisible}>{project
+      ? <ProjectHub key={project.id} project={project} workspace={workspace} entries={data.entries} projectLinks={data.links} onChanged={refresh} onMeeting={onMeeting} />
       : <div className="project-start"><h2>从一个项目继续工作</h2><p>选择项目，查看相关活动和资料，留下下一步进展。</p><p>临时想法可以先在工作台随手记录，不必立即归类。</p></div>}
     </div>
   </section>;

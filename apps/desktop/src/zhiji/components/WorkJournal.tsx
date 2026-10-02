@@ -92,7 +92,7 @@ export function WorkJournal({ workspace, compact = false, onOpen, onMeeting }: {
       </details>
     </>}
     {!compact && (filter && data.projects.find(p => p.id === filter)
-      ? <ProjectHub key={filter} project={data.projects.find(p => p.id === filter)!} workspace={workspace} onChanged={refresh} onMeeting={onMeeting} />
+      ? <ProjectHub key={filter} project={data.projects.find(p => p.id === filter)!} workspace={workspace} entries={data.entries} projectLinks={data.links} onChanged={refresh} onMeeting={onMeeting} />
       : <p className="capture-hint">选择一个项目，集中查看活动、关联本地资料并记录进展。</p>)}
     <div className="work-entry-list">
       {shown.slice(0, compact ? 3 : shown.length).map(entry => <article className="work-entry" key={entry.id}>

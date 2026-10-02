@@ -2335,6 +2335,7 @@ function Home({
   const recentMeetings = workspace.meetings.slice(0, 8);
   return (
     <div className="page-grid home-dashboard">
+      <ContinueProject onOpen={onProjects} />
       <section className="home-command-card">
         <div className="home-command-copy">
           <span className="home-date-label">{todayFullDate()}</span>
@@ -2354,7 +2355,6 @@ function Home({
       </section>
 
       <WorkbenchOverview workspace={workspace} aiReady={aiReady} transcriptionReady={transcriptionReady} onMeetings={onOpenMeetings} onTasks={() => onOpenTasks()} onSettings={onSettings} onReport={onReport} />
-      <ContinueProject onOpen={onProjects} />
       <WorkJournal workspace={workspace} compact onOpen={onJournal} />
 
       {continueMeeting && (
