@@ -14,8 +14,12 @@ try {
   await page.getByRole("button", { name: "全部记录", exact: true }).click();
   assert.equal(await page.getByRole("textbox", { name: "工作内容" }).inputValue(), "客户报价已提交，等待确认");
   await page.getByText("管理项目", { exact: true }).click();
+  await page.getByRole("button", { name: "新建项目", exact: true }).click();
   await page.getByRole("textbox", { name: "新项目名称" }).fill("客户交付");
   await page.getByRole("button", { name: "创建项目", exact: true }).click();
+  await page.getByRole("heading", { name: "客户交付", exact: true }).waitFor();
+  await page.getByRole("button", { name: "工作记录", exact: true }).click();
+  assert.equal(await page.getByRole("region", { name: "项目详情" }).count(), 0);
   await page.getByText("补充项目、分类与日期", { exact: true }).click();
   await page.getByRole("combobox", { name: "所属项目", exact: true }).selectOption({ label: "客户交付" });
   await page.getByRole("combobox", { name: "工作状态", exact: true }).selectOption("waiting");
@@ -33,7 +37,7 @@ try {
   await mkdir(new URL("../.tmp/ui-verification/", import.meta.url), { recursive: true });
   await page.screenshot({ path: ".tmp/ui-verification/work-journal.png", fullPage: true });
   await page.getByRole("button", { name: "工作台", exact: true }).click();
-  await page.getByRole("button", { name: /每周回顾/ }).click();
+  await page.getByRole("button", { name: "生成周报", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "生成周报" });
   await dialog.getByRole("combobox", { name: "周报项目" }).selectOption({ label: "客户交付" });
   await dialog.getByRole("button", { name: "整理草稿", exact: true }).click();
@@ -56,7 +60,7 @@ try {
   assert.match(await dialog.getByRole("textbox", { name: "周报正文" }).inputValue(), /已核对/);
   await page.evaluate(() => { window.__fixture.failReport = false; });
   await dialog.getByRole("button", { name: "关闭", exact: true }).click();
-  await page.getByRole("button", { name: /每周回顾/ }).click();
+  await page.getByRole("button", { name: "生成周报", exact: true }).click();
   const reportId = await page.evaluate(() => window.__fixture.reports[0].id);
   await dialog.getByRole("combobox", { name: "周报档案" }).selectOption(reportId);
   assert.match(await dialog.getByRole("textbox", { name: "周报正文" }).inputValue(), /已核对/);
@@ -67,7 +71,7 @@ try {
   await dialog.getByRole("button", { name: "关闭", exact: true }).click();
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole("button", { name: "设置", exact: true }).click();
-  await page.getByRole("button", { name: /本地 API \/ MCP/ }).click();
+  await page.getByRole("button", { name: /AI 与自动化/ }).click();
   await page.getByRole("button", { name: "开启本地接入", exact: true }).click();
   await page.getByRole("button", { name: "复制 MCP 配置", exact: true }).waitFor();
   await page.screenshot({ path: ".tmp/ui-verification/local-access.png", fullPage: true });

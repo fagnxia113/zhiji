@@ -133,7 +133,7 @@ try {
   assert.equal(await page.evaluate(() => /我的笔记/.test(document.activeElement?.textContent || "")), true);
   await page.waitForFunction(() => window.__fixture.workspace.meetings.find(m => m.id === "m2")?.notes === "抽屉里的观察：客户更在意首次配置耗时。");
   await page.getByRole("button", { name: "工作台", exact: true }).click();
-  await page.getByRole("button", { name: /每周回顾/ }).click();
+  await page.getByRole("button", { name: "生成周报", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog.waitFor();
   await page.keyboard.press("Shift+Tab");

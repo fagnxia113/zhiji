@@ -1,0 +1,20 @@
+.report-workspace > * { flex-shrink: 0; min-width: 0; }
+.report-compose { margin-top: 20px; }
+.report-compose h3, .report-saved-heading h3 { margin: 0 0 12px; color: var(--text-strong); font-size: 14px; }
+.report-range { margin: 10px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.report-material-state { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 12px 0; font-size: 12px; color: var(--text-muted); line-height: 1.8; }
+.report-material-state > span { min-width: 0; overflow-wrap: anywhere; }
+.report-saved { border-top: 1px solid var(--border-subtle); padding-top: 18px; margin-top: 4px; }
+.report-saved-heading p { margin: 0; color: var(--accent-text); font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
+.report-workspace .weekly-controls > label { min-width: 0; max-width: 100%; }
+.report-workspace .weekly-controls > label:nth-child(2) { flex: 1; min-width: 160px; }
+.report-workspace .weekly-controls select { width: 100%; }
+.report-workspace .weekly-controls > button { min-height: var(--control-h); }
+.report-workspace .report-editor { box-sizing: border-box; }
+@media (max-width: 600px) {
+  .report-workspace .weekly-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .report-workspace .weekly-controls > label { grid-column: 1 / -1; }
+  .report-workspace .weekly-controls input[type=date] { max-width: 100%; box-sizing: border-box; }
+  .report-workspace .weekly-controls > button { min-width: 0; width: 100%; }
+  .report-workspace .weekly-actions > button { max-width: 100%; white-space: normal; }
+}

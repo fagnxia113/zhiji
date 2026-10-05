@@ -38,6 +38,8 @@ import type {
 import { OfflineInstallPanel } from "./components/settings/OfflineInstallPanel";
 import { LocalAccessPanel } from "./components/settings/LocalAccessPanel";
 import type { ThemePreference } from "./theme";
+import { cachedFields } from "./workbench/cache";
+import { focusListItem } from "./components/ui/keyboardNavigation";
 
 const CLOUD_ASR_PRESETS = [
   {
@@ -163,7 +165,14 @@ export function SettingsView({
   updateVersion: string;
   updateError: string;
 }) {
-  const [section, setSection] = useState<SettingsSection>("general");
+  const [section, setSection] = useState<SettingsSection>(() => {
+    const value = cachedFields("zhiji:settings-view", { section: "general" }).section;
+    return ["general", "transcription", "summary", "data", "integrations", "about"].includes(value) ? value as SettingsSection : "general";
+  });
+  useEffect(() => {
+    try { localStorage.setItem("zhiji:settings-view", JSON.stringify({ section })); }
+    catch { /* Section preferences are optional. */ }
+  }, [section]);
   // 开机自启：设置页自包含状态，读取系统实际开关状态
   const [autoStart, setAutoStart] = useState(false);
   const [autoStartLoading, setAutoStartLoading] = useState(true);
@@ -262,7 +271,6 @@ export function SettingsView({
     icon: typeof Settings2;
     state?: "ready" | "attention";
   }> = [
-    { id: "integrations", label: "本地 API / MCP", hint: "连接 AI 与自动化", icon: Settings2 },
     {
       id: "general",
       label: "使用概览",
@@ -291,6 +299,12 @@ export function SettingsView({
       state: lastBackup ? "ready" : undefined,
     },
     {
+      id: "integrations",
+      label: "AI 与自动化",
+      hint: "允许其他工具读取资料",
+      icon: Settings2,
+    },
+    {
       id: "about",
       label: "关于与更新",
       hint: "版本与软件更新",
@@ -298,16 +312,18 @@ export function SettingsView({
     },
   ];
 
-  const selectSection = (next: SettingsSection) => setSection(next);
+  const selectSection = (next: SettingsSection) => {
+    setSection(next);
+    document.querySelector(".main-content")?.scrollTo({ top: 0 });
+  };
 
   return (
     <div className="settings-page settings-layout">
       <aside className="settings-sidebar" aria-label="设置分类">
         <div className="settings-sidebar-heading">
-          <h2>设置</h2>
-          <p>只展示与使用有关的选项</p>
+          <h2>设置分类</h2>
         </div>
-        <nav>
+        <nav aria-label="设置分类导航" onKeyDown={focusListItem}>
           {navItems.map((item) => {
             const Icon = item.icon;
             return (

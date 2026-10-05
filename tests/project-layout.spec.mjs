@@ -28,13 +28,15 @@ await page.addInitScript({ content: `(${installFixture.toString()})(); (${seed.t
 try {
   await page.goto(process.env.TEST_URL || "http://127.0.0.1:1422");
   const resume = page.getByRole("region", { name: "继续上次项目" });
-  assert.ok(await resume.evaluate(el => el.getBoundingClientRect().top) < await page.locator(".home-command-card").evaluate(el => el.getBoundingClientRect().top));
+  assert.ok(await resume.evaluate(el => el.getBoundingClientRect().top) < await page.locator(".work-journal.compact").evaluate(el => el.getBoundingClientRect().top));
   await resume.getByRole("button", { name: "继续项目" }).click();
   const hub = page.getByRole("region", { name: "项目详情" });
   const tab = name => hub.getByRole("tab", { name, exact: true });
   await hub.locator(".hub-overview").getByText("准备季度汇报", { exact: true }).waitFor();
   assert.equal(await tab("概览").getAttribute("aria-selected"), "true", "invalid saved tabs fall back safely");
-  assert.equal(await page.getByRole("navigation", { name: "项目列表" }).isVisible(), false, "project list does not consume the normal workspace");
+  assert.equal(await page.getByRole("navigation", { name: "项目列表" }).isVisible(), true, "desktop keeps the project list beside the current workspace");
+  const panes = await page.locator(".project-picker, .project-detail").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().toJSON()));
+  assert.ok(panes[0].right < panes[1].left && panes[1].width > 600, "project navigation and content fit side by side");
   assert.equal(await hub.getByRole("textbox", { name: "项目进展内容" }).isVisible(), false);
   await hub.getByRole("region", { name: "项目当前行动" }).getByText("提交首次使用流程方案", { exact: true }).waitFor();
   assert.equal(await hub.getByRole("region", { name: "项目最近进展" }).locator("article").count(), 3);
@@ -45,16 +47,17 @@ try {
   assert.equal(await tab("进展").getAttribute("aria-selected"), "true");
   assert.equal(await hub.getByRole("region", { name: "项目最近进展" }).locator("article").count(), 7);
   await hub.getByRole("textbox", { name: "项目进展内容" }).fill("已整理评审反馈，准备修改第三部分");
-  await hub.getByRole("combobox", { name: "当前活动", exact: true }).selectOption("a1");
-  await hub.getByRole("combobox", { name: "进展关联资料" }).selectOption("r0");
+  await hub.getByText("补充日期、状态与来源", { exact: true }).click();
+  await hub.getByRole("combobox", { name: "当前活动", exact: true , includeHidden: true }).selectOption("a1");
+  await hub.getByRole("combobox", { name: "进展关联资料" , includeHidden: true }).selectOption("r0");
   await tab("活动").click();
   await hub.getByText("添加活动", { exact: true }).click();
   await hub.getByRole("textbox", { name: "活动名称" }).fill("下次汇报准备");
   await hub.getByRole("button", { name: "保存活动", exact: true }).click();
   await hub.getByText("活动已保存，可以添加本次资料和进展", { exact: true }).waitFor();
   await tab("进展").click();
-  assert.equal(await hub.getByRole("combobox", { name: "当前活动", exact: true }).inputValue(), "a1", "creating another activity does not reassign a nonempty progress draft");
-  assert.equal(await hub.getByRole("combobox", { name: "进展关联资料" }).inputValue(), "r0");
+  assert.equal(await hub.getByRole("combobox", { name: "当前活动", exact: true , includeHidden: true }).inputValue(), "a1", "creating another activity does not reassign a nonempty progress draft");
+  assert.equal(await hub.getByRole("combobox", { name: "进展关联资料" , includeHidden: true }).inputValue(), "r0");
   await tab("资料").click();
   await hub.getByRole("combobox", { name: "资料所属活动" }).selectOption("");
   await hub.getByRole("textbox", { name: "搜索项目资料" }).fill("参考资料");
@@ -79,8 +82,8 @@ try {
   await hub.getByRole("combobox", { name: "资料所属活动" }).selectOption("a1");
   assert.equal(await hub.locator(".hub-resources li").count(), 1);
   await tab("进展").click();
-  assert.equal(await hub.getByRole("combobox", { name: "当前活动", exact: true }).inputValue(), "a1");
-  assert.equal(await hub.getByRole("combobox", { name: "进展关联资料" }).inputValue(), "r0");
+  assert.equal(await hub.getByRole("combobox", { name: "当前活动", exact: true , includeHidden: true }).inputValue(), "a1");
+  assert.equal(await hub.getByRole("combobox", { name: "进展关联资料" , includeHidden: true }).inputValue(), "r0");
   assert.match(await hub.getByRole("textbox", { name: "项目进展内容" }).inputValue(), /第三部分/);
   await tab("资料").click();
   await hub.getByRole("combobox", { name: "资料所属活动" }).selectOption("");
@@ -93,6 +96,7 @@ try {
 
   // A narrow window shows one pane. Resizing and returning preserve the selection and list position.
   await page.setViewportSize({ width: 400, height: 700 });
+  await page.getByRole("navigation", { name: "项目列表" }).waitFor({ state: "hidden" });
   assert.equal(await fileList.isVisible(), false);
   assert.equal(await detail.isVisible(), true);
   assert.ok(await detail.getByRole("button", { name: "打开原文件" }).evaluate(el => el.getBoundingClientRect().bottom) < 700, "file actions remain visible in the narrow detail view");
@@ -100,6 +104,7 @@ try {
   await mkdir(new URL("../.tmp/ui-verification/", import.meta.url), { recursive: true });
   await page.screenshot({ path: ".tmp/ui-verification/project-layout-narrow-detail.png", fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await fileList.waitFor({ state: "visible" });
   assert.equal(await fileList.isVisible(), true);
   assert.ok(Math.abs(await fileList.evaluate(el => el.scrollTop) - savedPosition) < 2);
   await page.screenshot({ path: ".tmp/ui-verification/project-layout-files.png", fullPage: true });

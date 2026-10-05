@@ -18,7 +18,7 @@
 }
 
 .primary-button {
-  color: white;
+  color: var(--on-accent);
   background: var(--accent);
   box-shadow: var(--shadow-brand);
 }
@@ -31,7 +31,7 @@
   gap: var(--space-2, 8px);
   padding: var(--space-2, 8px) var(--space-3, 12px);
   border-radius: var(--radius-md, 8px);
-  border: 1px solid var(--border-default);
+  border: 1px solid transparent;
   background: transparent;
   color: var(--text-muted);
   font-size: 13px;
@@ -90,6 +90,7 @@
 /* —— 图标提示气泡（纯 CSS 显隐，禁用态同样生效）—— */
 .tooltip-anchor { position: relative; display: inline-flex; flex: none; }
 .tooltip-bubble {
+  display: none;
   /* --tip-tx 决定水平对齐：居中 -50%、贴左/贴右为 0，由 Tooltip 测量后切换 */
   --tip-tx: -50%;
   position: absolute;
@@ -119,6 +120,7 @@
 .tooltip-anchor.end > .tooltip-bubble { --tip-tx: 0; left: auto; right: 0; }
 .tooltip-anchor:hover > .tooltip-bubble,
 .tooltip-anchor:focus-within > .tooltip-bubble {
+  display: block;
   opacity: 1;
   visibility: visible;
   transform: translate(var(--tip-tx), 0);
@@ -489,9 +491,16 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .task-row:last-child { border: 0; }
 .task-row:hover { background: var(--bg-subtle); }
 .task-row.editing { gap: var(--space-2); }
+.task-row[hidden] { display: none; }
+.task-row.is-located { background: var(--accent-subtle); }
+.task-row.is-located:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.task-location { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.task-location strong { font-size: 13px; color: var(--text-strong); }
+.task-location p { margin: 5px 0 0; font-size: 12px; color: var(--text-muted); }
 
-.task-check { display: inline-flex; align-items: center; cursor: pointer; flex: none; }
-.task-check input { position: absolute; opacity: 0; width: 0; height: 0; }
+.task-check { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; cursor: pointer; flex: none; }
+.task-check input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.task-check input:focus-visible + .checkmark { outline: 2px solid var(--accent); outline-offset: 3px; }
 .checkmark {
   width: 18px;
   height: 18px;
@@ -500,7 +509,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   place-items: center;
   border: 1.5px solid var(--border-default);
   border-radius: var(--radius-sm);
-  color: white;
+  color: var(--on-accent);
   transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 .task-check input:checked + .checkmark {
@@ -546,18 +555,20 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 button.task-source:hover:not(:disabled) { color: var(--accent-text); background: var(--accent-subtle); }
 /* 纯图标形态：收进提示气泡，尺寸向 icon-btn 看齐 */
 button.task-source.icon-only { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; }
-.task-dashboard { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--space-2); margin: 0 0 var(--space-3); }
-.task-dashboard > button { display: grid; gap: 2px; padding: var(--space-3) var(--space-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); color: var(--text-muted); background: var(--bg-surface); text-align: left; }
-.task-dashboard > button strong { color: var(--text-strong); font-size: 18px; font-variant-numeric: tabular-nums; }
-.task-dashboard > button span { font-size: 10px; }
-.task-dashboard > button.active { border-color: var(--accent); background: var(--accent-subtle); }
+.task-dashboard { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border-subtle); }
+.task-dashboard > button { display: inline-flex; align-items: center; gap: 8px; min-height: var(--control-h); padding: 8px 12px; border: 0; border-radius: var(--radius-md); color: var(--text-muted); background: transparent; text-align: left; }
+.task-dashboard > button strong { color: inherit; font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; padding: 1px 5px; border-radius: 4px; background: var(--bg-inset); }
+.task-dashboard > button span { font-size: 12px; }
+.task-dashboard > button.active { color: var(--accent-text); background: var(--accent-subtle); }
 .task-dashboard > button.attention strong { color: var(--danger-fg); }
 .task-toolbar { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
 .task-toolbar label { display: flex; align-items: center; gap: var(--space-2); flex: 1; padding: 0 var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); color: var(--text-faint); background: var(--bg-surface); }
 .task-toolbar input { width: 100%; height: 36px; border: 0; outline: 0; color: var(--text-default); background: transparent; }
 .task-toolbar select { min-width: 140px; padding: 0 var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); color: var(--text-default); background: var(--bg-surface); }
 @media (max-width: 760px) {
-  .task-dashboard { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .task-dashboard > button { padding-inline: 8px; }
+  .task-toolbar { flex-wrap: wrap; }
+  .task-toolbar label { flex-basis: 100%; }
 }
 .task-edit-title,
 .task-edit-due {
@@ -1013,7 +1024,7 @@ button.task-source.icon-only { display: inline-flex; align-items: center; justif
   align-items: start;
 }
 /* 转写比纪要更吃宽度，分栏时给转写 1.55 份 */
-@container (min-width: 980px) {
+@container (min-width: 1080px) {
   .meeting-contrast { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); }
 }
 .meeting-contrast > section { position: static; }

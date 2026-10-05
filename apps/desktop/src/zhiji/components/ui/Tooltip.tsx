@@ -38,7 +38,7 @@ export function Tooltip({ label, placement = "top", children }: TooltipProps) {
     const anchor = anchorRef.current;
     const bubble = bubbleRef.current;
     if (!anchor || !bubble) return;
-    // 气泡虽是 visibility:hidden，但仍有布局尺寸，可以直接量
+    // hover / focus 样式已使气泡参与布局；未触发的气泡不撑开滚动区域。
     const a = anchor.getBoundingClientRect();
     const b = bubble.getBoundingClientRect();
     const half = b.width / 2;

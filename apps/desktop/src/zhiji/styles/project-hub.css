@@ -18,18 +18,19 @@
 .hub-path { overflow-wrap: anywhere; }
 .hub-actions { display: flex; flex-wrap: wrap; gap: 5px; }
 .hub-progress { padding-top: 5px; border-top: 1px solid var(--border-subtle); }
+.hub-progress > .hub-section-heading { flex-direction: row; align-items: center; }
 .entry-history { max-width: 700px; width: calc(100vw - 32px); max-height: 80vh; overflow: auto; background: var(--bg-surface); padding: 20px; }
 .entry-history article { padding-block: 12px; border-bottom: 1px solid var(--border-subtle); }
 .entry-history p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .entry-history small { color: var(--text-muted); }
-.projects-page { display: flex; flex-direction: column; gap: 16px; padding: 20px; overflow-y: auto; min-height: 0; }
+.projects-page { display: flex; flex-direction: column; gap: 16px; min-height: 0; max-width: var(--page-max); margin-inline: auto; }
 .project-picker, .project-detail { min-width: 0; }
 .project-picker h2 { font-size: 16px; }
 .project-picker input:not([type="checkbox"]) { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--bg-surface); color: var(--text-default); }
 .project-archive-filter { display: flex; align-items: center; gap: 7px; margin: 14px 0; font-size: 12px; color: var(--text-muted); }
 .project-picker nav { display: grid; gap: 8px; }
 .project-picker nav button { display: grid; gap: 6px; text-align: left; padding: 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-surface); color: var(--text-default); cursor: pointer; overflow-wrap: anywhere; }
-.project-picker nav button[aria-current="page"] { border-color: var(--text-muted); background: var(--bg-subtle); box-shadow: inset 3px 0 var(--text-muted); }
+.project-picker nav button[aria-current="page"] { border-color: transparent; background: var(--accent-subtle); color: var(--accent-text); box-shadow: inset 3px 0 var(--accent); }
 .project-picker nav small, .hub-overview small, .continue-project small { color: var(--text-muted); font-size: 12px; }
 .project-detail .project-hub { margin: 0; }
 .project-start { padding: 28px; border: 1px dashed var(--border-default); border-radius: 12px; color: var(--text-muted); font-size: 14px; }
@@ -51,7 +52,6 @@
 .project-recent p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .project-recent small { color: var(--text-muted); }
 .projects-page button:focus-visible, .project-hub summary:focus-visible, .capture-options summary:focus-visible { outline: 2px solid var(--text-default); outline-offset: 3px; }
-@media(max-width:900px) { .projects-page { padding: 16px; } }
 @media(max-width:600px) { .continue-project, .capture-quick-actions { align-items: stretch; flex-direction: column; } .continue-project p { white-space: normal; } }
 @media(max-width:600px) { .project-hub { padding: 14px; } .hub-section-heading, .hub-resources li { align-items: stretch; flex-direction: column; } .hub-section-heading select { width: 100%; } }
 
@@ -60,14 +60,14 @@
 .project-workspace-toolbar > button { min-width: 0; overflow-wrap: anywhere; text-align: left; }
 .project-switch-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .project-switch-actions > button { min-width: 0; overflow-wrap: anywhere; text-align: left; }
-.project-shortcuts h3, .project-list-heading { font-size: 12px; color: var(--text-muted); margin: 16px 0 8px; }
-.project-shortcuts nav { display: flex; flex-wrap: wrap; gap: 8px; }
-.project-shortcuts nav button { padding: 8px 12px; font-size: 12px; }
+.project-list-filters { display: flex; gap: 8px; margin: 12px 0; }
+.project-list-filters button[aria-pressed="true"] { color: var(--accent-text); background: var(--accent-subtle); font-weight: 600; }
+.hub-progress-context { overflow-wrap: anywhere; line-height: 1.7; }
 .project-picker { padding: 16px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--bg-surface); }
-.project-picker nav { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.project-picker nav { grid-template-columns: 1fr; }
 .hub-tabs { display: flex; gap: 6px; margin-top: 18px; border-bottom: 1px solid var(--border-default); }
 .hub-tabs button { flex: 1; padding: 12px 8px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-muted); font: inherit; font-size: 13px; cursor: pointer; }
-.hub-tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--accent-text); font-weight: 600; background: var(--accent-subtle); }
+.hub-tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--accent-text); font-weight: 600; }
 .project-hub button:focus-visible, .hub-file-search input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .hub-draft-preview { padding: 12px; background: var(--bg-subtle); border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 140px; overflow: auto; font-size: 13px; }
 .hub-current-tasks article, .hub-activity-list article { display: grid; gap: 8px; padding: 14px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px; overflow-wrap: anywhere; }
@@ -75,11 +75,11 @@
 .hub-current-tasks article button { justify-self: start; }
 .project-hub .project-recent { padding: 0; border: 0; }
 .hub-file-search { display: grid; gap: 6px; font-size: 12px; color: var(--text-muted); }
-.hub-file-browser { display: grid; grid-template-columns: minmax(180px, 0.8fr) minmax(0, 1.2fr); gap: 16px; margin-top: 16px; }
+.hub-file-browser { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 1.15fr); gap: 16px; margin-top: 16px; }
 .hub-file-list { max-height: 420px; overflow-y: auto; min-width: 0; border: 1px solid var(--border-subtle); border-radius: 8px; }
 .hub-file-list .hub-resources { margin: 0; }
 .hub-file-list .hub-resources li { display: block; padding: 0; }
-.hub-file-choice { display: block; width: 100%; min-height: 68px; padding: 14px; text-align: left; background: transparent; border: 0; color: var(--text-default); cursor: pointer; }
+.hub-file-choice { display: block; width: 100%; min-height: 64px; padding: 12px; text-align: left; background: transparent; border: 0; color: var(--text-default); cursor: pointer; }
 .hub-file-choice[aria-pressed="true"] { background: var(--accent-subtle); box-shadow: inset 3px 0 var(--accent); }
 .hub-file-detail { min-width: 0; padding: 16px; border: 1px solid var(--border-subtle); border-radius: 8px; }
 .hub-file-detail h3 { margin-top: 8px; overflow-wrap: anywhere; }
@@ -99,6 +99,7 @@
 @container project-hub (max-width: 680px) {
   .hub-tabs { margin-top: 12px; }
   .hub-resources-panel.has-selection > .hub-section-heading,
+  .hub-resources-panel.has-selection > select,
   .hub-resources-panel.has-selection > .hub-add,
   .hub-resources-panel.has-selection > .capture-hint,
   .hub-resources-panel.has-selection > .hub-file-search { display: none; }
@@ -107,4 +108,48 @@
   .hub-file-back { display: inline-flex; }
   .hub-section-heading { align-items: stretch; flex-direction: column; }
   .hub-section-heading select { width: 100%; }
+}
+
+/* Project navigation stays beside the document in a desktop window. */
+@media (min-width: 1100px) {
+  .projects-page { display: grid; grid-template-columns: var(--navigation-w) minmax(0, 1fr); gap: 16px 20px; align-items: start; }
+  .project-workspace-toolbar, .projects-page > .qa-error { grid-column: 1 / -1; }
+  .project-detail { grid-column: 2; }
+  .project-picker { position: sticky; top: 0; padding: 14px 10px; max-height: calc(100vh - 170px); overflow: auto; }
+  .project-picker .hub-section-heading { padding-inline: 4px; }
+  .project-picker h2 { font-size: 13px; margin-block: 0 12px; }
+  .project-picker nav { gap: 3px; }
+  .project-picker nav button { border-color: transparent; border-radius: 6px; padding: 10px; }
+  .project-picker nav button:hover { background: var(--bg-subtle); }
+  .project-picker nav button[aria-current="page"] { background: var(--accent-subtle); }
+  .project-picker nav strong { font-size: 13px; font-weight: 550; }
+  .project-picker nav small { font-size: 11px; }
+  .project-list-filters { gap: 2px; }
+  .project-list-filters button { flex: 1; padding-inline: 6px; font-size: 12px; }
+  .project-archive-filter { font-size: 11px; }
+  .projects-page.is-creating .project-picker { grid-column: 1 / -1; position: static; max-width: 640px; width: 100%; box-sizing: border-box; }
+}
+.hub-section-heading h3 small { font-size: 11px; color: var(--text-muted); font-weight: 400; margin-left: 6px; }
+.hub-resource-filters { display: flex; gap: 10px; align-items: center; }
+.hub-resource-filters > select { max-width: 190px; }
+.hub-resource-filters .hub-file-search { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; padding: 0 10px; border: 1px solid var(--border-default); background: var(--bg-subtle); border-radius: 6px; }
+.hub-file-search input { width: 100%; border: 0; padding-inline: 0; background: transparent; }
+.hub-file-choice { display: flex; align-items: center; gap: 10px; }
+.hub-file-choice > svg { flex: none; color: var(--text-muted); }
+.hub-file-choice > span { min-width: 0; }
+.hub-file-placeholder { min-height: 210px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: var(--text-muted); font-size: 12px; }
+.hub-file-placeholder h3 { margin: 16px 0 0; color: var(--text-default); }
+.hub-file-primary-actions { margin-top: 16px; gap: 8px; }
+.hub-file-maintenance { border-top: 1px solid var(--border-subtle); padding-top: 12px; margin-top: 20px; }
+.hub-resource-options { border: 0; border-top: 1px solid var(--border-subtle); border-radius: 0; padding-inline: 0; margin-top: 20px; }
+@container project-hub (max-width: 480px) { .capture-fields.form-grid { grid-template-columns: minmax(0, 1fr); } }
+@container project-hub (max-width: 680px) {
+  .hub-resources-panel.has-selection .hub-resource-toolbar, .hub-resources-panel.has-selection .hub-resource-options { display: none; }
+  .hub-resource-filters { flex-wrap: wrap; }
+  .hub-resource-filters .hub-file-search { flex-basis: 100%; }
+  .hub-resource-filters > select { max-width: 100%; width: 100%; }
+}
+@container project-hub (min-width: 760px) {
+  .hub-overview-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+  .hub-overview-grid .project-recent { margin-top: 18px; }
 }

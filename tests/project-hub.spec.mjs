@@ -11,14 +11,15 @@ try {
   await page.getByRole("button",{name:"全部记录",exact:true}).click();
   await page.getByText("管理项目",{exact:true}).click();
   for (const name of ["专题调研","成果汇报"]) {
+    await page.getByRole("button",{name:"新建项目",exact:true}).click();
     await page.getByRole("textbox",{name:"新项目名称"}).fill(name);
     await page.getByRole("button",{name:"创建项目",exact:true}).click();
     await page.waitForFunction(name=>window.__fixture.work.projects.some(p=>p.name===name),name);
   }
-  const select=page.getByRole("combobox",{name:"筛选项目"});
-  await select.selectOption({label:"专题调研"});
+  const chooseProject = async name => { await page.getByRole("button", { name: /^切换项目/ }).click(); await page.getByRole("navigation", { name: "项目列表" }).getByRole("button", { name: new RegExp(name) }).click(); };
+  await chooseProject("专题调研");
   const hub=page.getByRole("region",{name:"项目详情"});
-  await hub.getByText("编辑目标与阶段",{exact:true}).click();
+  await hub.getByText("项目设置",{exact:true}).click();
   await hub.getByRole("textbox",{name:"项目目标"}).fill("形成调研报告与汇报材料");
   await hub.getByRole("textbox",{name:"项目阶段"}).fill("初稿评审");
   await hub.getByRole("button",{name:"保存目标与阶段"}).click();
@@ -34,9 +35,9 @@ try {
   await page.evaluate(()=>{window.__fixture.failActivity=false;window.__fixture.pickedFiles=["D:\\work\\报告初稿.docx"];});
   await hub.getByRole("button",{name:"保存活动",exact:true}).click();
   await hub.getByText("活动已保存，可以添加本次资料和进展",{exact:true}).waitFor();
-  await hub.getByText("添加资料",{exact:true}).click();
+  await hub.getByText(/资料选项与复用/).click();
   await hub.getByRole("combobox",{name:"资料用途"}).selectOption("output");
-  await hub.getByRole("button",{name:"选择本地文件",exact:true}).click();
+  await hub.getByRole("button",{name:"添加资料",exact:true}).click();
   await hub.locator(".hub-resources strong").getByText("报告初稿.docx",{exact:true}).waitFor();
   await hub.getByRole("textbox",{name:"搜索项目资料"}).fill("没有这个文件");
   await hub.getByText("未找到匹配文件，可调整关键词；文件正文尚未索引。",{exact:true}).waitFor();
@@ -45,8 +46,9 @@ try {
   await hub.getByRole("textbox",{name:"搜索项目资料"}).fill("");
   await hub.getByRole("tab",{name:"进展",exact:true}).click();
   await hub.getByRole("textbox",{name:"项目进展内容"}).fill("已提交调研初稿，等待评审反馈");
-  await hub.getByRole("combobox",{name:"进展状态"}).selectOption("waiting");
-  await hub.getByRole("combobox",{name:"进展关联资料"}).selectOption({label:"报告初稿.docx"});
+  await hub.getByText("补充日期、状态与来源",{exact:true}).click();
+  await hub.getByRole("combobox", { name: "进展状态", includeHidden: true }).selectOption("waiting");
+  await hub.getByRole("combobox", { name: "进展关联资料", includeHidden: true }).selectOption({label:"报告初稿.docx"});
   await page.evaluate(()=>{window.__fixture.failEntry=true;});
   await hub.getByRole("button",{name:"保存本次进展"}).click();
   await hub.getByRole("alert").getByText(/工作记录写入失败/).waitFor();
@@ -56,12 +58,14 @@ try {
   await hub.getByText("进展已保存，将按实际发生日期进入周报材料",{exact:true}).waitFor();
   const entry=await page.evaluate(()=>window.__fixture.work.entries[0]);
   assert.equal(entry.status,"waiting");assert.ok(entry.activityId);assert.ok(entry.resourceId);
+  await page.getByRole("button",{name:"工作记录",exact:true}).click();
   await page.getByRole("button",{name:"修改历史",exact:true}).click();
   const history=page.getByRole("dialog",{name:"工作记录修改历史"});
   await history.getByText(entry.content,{exact:true}).waitFor();
   await history.getByRole("button",{name:"关闭",exact:true}).click();
+  await page.getByRole("button",{name:"项目",exact:true}).click();
   await hub.getByRole("textbox",{name:"项目进展内容"}).fill("明天继续核对数据");
-  await select.selectOption({label:"成果汇报"});
+  await chooseProject("成果汇报");
   await hub.getByRole("tab",{name:"活动",exact:true}).click();
   await hub.getByText("添加活动",{exact:true}).click();
   await hub.getByRole("combobox",{name:"复用现有活动"}).selectOption({label:"成果评审"});
@@ -69,11 +73,11 @@ try {
   await hub.locator(".hub-resources strong").getByText("报告初稿.docx",{exact:true}).waitFor();
   assert.equal(await page.evaluate(()=>window.__fixture.hub.resources.length),1);
   assert.equal(await page.evaluate(()=>window.__fixture.hub.activities.length),1);
-  await select.selectOption({label:"专题调研"});
+  await chooseProject("专题调研");
   await hub.getByRole("tab",{name:"进展",exact:true}).click();
   assert.equal(await hub.getByRole("textbox",{name:"项目进展内容"}).inputValue(),"明天继续核对数据");
-  assert.equal(await hub.getByRole("combobox",{name:"当前活动"}).inputValue(),entry.activityId);
-  assert.equal(await hub.getByRole("combobox",{name:"进展关联资料"}).inputValue(),entry.resourceId);
+  assert.equal(await hub.getByRole("combobox", { name: "当前活动", includeHidden: true }).inputValue(),entry.activityId);
+  assert.equal(await hub.getByRole("combobox", { name: "进展关联资料", includeHidden: true }).inputValue(),entry.resourceId);
   await page.evaluate(()=>{window.__fixture.missingFile=true;});
   await hub.getByRole("tab",{name:"资料",exact:true}).click();
   await hub.getByRole("button",{name:/报告初稿.docx/}).click();
@@ -90,7 +94,7 @@ try {
   await page.screenshot({path:".tmp/ui-verification/project-hub-narrow.png",fullPage:true});
   await page.setViewportSize({width:1440,height:1000});
   await page.getByRole("button",{name:"工作台",exact:true}).click();
-  await page.getByRole("button",{name:/每周回顾/}).click();
+  await page.getByRole("button",{name:"生成周报",exact:true}).click();
   const report=page.getByRole("dialog",{name:"生成周报"});
   await report.getByText(/待汇总材料 ·/).click();
   const checks=report.getByRole("checkbox");

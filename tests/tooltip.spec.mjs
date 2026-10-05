@@ -171,7 +171,7 @@ try {
 
   // 9. 设置页：本地接入面板的图标按钮也走气泡，并全量扫描
   await page.getByRole("button", { name: "设置", exact: true }).click();
-  await page.getByRole("button", { name: /本地 API \/ MCP/ }).click();
+  await page.getByRole("button", { name: /AI 与自动化/ }).click();
   await page.getByRole("button", { name: "开启本地接入", exact: true }).click();
   const refreshCalls = page.getByRole("button", { name: "刷新最近调用" });
   await refreshCalls.waitFor();

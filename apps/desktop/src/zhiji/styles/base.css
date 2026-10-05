@@ -7,8 +7,10 @@
   color: var(--text-default);
   background: var(--bg-app);
   font-synthesis: none;
-  color-scheme: light dark;
+  color-scheme: light;
 }
+
+[data-theme="dark"] { color-scheme: dark; }
 
 html, body, #root { height: 100%; }
 

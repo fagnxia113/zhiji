@@ -1,8 +1,10 @@
 import { CalendarDays, CalendarRange, ChevronRight, Mic, Plus, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Meeting } from "../../types";
 import { meetingJourney } from "../../workflow";
 import { Empty, StatusDot } from "../ui";
+import { focusListItem } from "../ui/keyboardNavigation";
+import { cachedFields } from "../../workbench/cache";
 
 type MeetingSidebarProps = {
   meetings: Meeting[];
@@ -21,9 +23,14 @@ export function MeetingSidebar({
   onWeeklyReport,
   formatDate,
 }: MeetingSidebarProps) {
-  const [query, setQuery] = useState("");
-  const [stage, setStage] = useState("all");
-  const [order, setOrder] = useState("newest");
+  const [savedView] = useState(() => cachedFields("zhiji:meeting-list-view", { query: "", stage: "all", order: "newest" }));
+  const [query, setQuery] = useState(savedView.query);
+  const [stage, setStage] = useState(["all", "pending", "done"].includes(savedView.stage) ? savedView.stage : "all");
+  const [order, setOrder] = useState(["newest", "oldest", "updated"].includes(savedView.order) ? savedView.order : "newest");
+  useEffect(() => {
+    try { localStorage.setItem("zhiji:meeting-list-view", JSON.stringify({ query, stage, order })); }
+    catch { /* List preferences are optional. */ }
+  }, [query, stage, order]);
   const visibleMeetings = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     return meetings.filter((meeting) => {
@@ -68,7 +75,7 @@ export function MeetingSidebar({
       <div className="meeting-list-order"><small>{visibleMeetings.length} 场会议</small><select aria-label="会议排序" value={order} onChange={event => setOrder(event.target.value)}>
         <option value="newest">最新会议优先</option><option value="oldest">最早会议优先</option><option value="updated">最近修改优先</option>
       </select></div>
-      <div className="meeting-list-scroll">
+      <div className="meeting-list-scroll" onKeyDown={event => focusListItem(event, ".meeting-item")}>
         {visibleMeetings.map((item) => {
           const state = meetingJourney(item).label;
           return (

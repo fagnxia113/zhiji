@@ -1,5 +1,5 @@
 import { ArrowUpRight, CalendarDays, Check, Pencil, Trash2, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Task } from "../../types";
 import { taskDueState } from "../../workflow";
 import { IconButton, Tooltip } from "../ui";
@@ -18,12 +18,16 @@ export function TaskRow({
   onSave,
   onDelete,
   onOpenSource,
+  hidden = false,
+  focusRequest,
 }: {
   task: Task;
   onToggle: (task: Task) => void;
   onSave: (task: Task) => Promise<boolean>;
   onDelete: (task: Task) => void;
   onOpenSource?: (task: Task) => void;
+  hidden?: boolean;
+  focusRequest?: number;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
@@ -31,6 +35,15 @@ export function TaskRow({
   const [owner, setOwner] = useState(task.owner ?? "");
   const [saving, setSaving] = useState(false);
   const busy = useRef(false);
+  const row = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (hidden || focusRequest === undefined) return;
+    const frame = requestAnimationFrame(() => {
+      row.current?.focus({ preventScroll: true });
+      row.current?.scrollIntoView({ block: "nearest" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusRequest, hidden]);
   const overdue = taskDueState(task) === "overdue";
 
   const startEdit = () => {
@@ -51,7 +64,7 @@ export function TaskRow({
 
   if (editing) {
     return (
-      <div className={`task-row editing${task.completed ? " done" : ""}`}>
+      <div ref={row} role="group" aria-label={`待办：${task.title}`} tabIndex={-1} hidden={hidden} className={`task-row editing${task.completed ? " done" : ""}${focusRequest !== undefined ? " is-located" : ""}`}>
         <input
           className="task-edit-title"
           autoFocus
@@ -81,7 +94,7 @@ export function TaskRow({
   }
 
   return (
-    <div className={`task-row${task.completed ? " done" : ""}`}>
+    <div ref={row} role="group" aria-label={`待办：${task.title}`} tabIndex={-1} hidden={hidden} className={`task-row${task.completed ? " done" : ""}${focusRequest !== undefined ? " is-located" : ""}`}>
       <label className="task-check">
         <input type="checkbox" aria-label={`${task.completed ? "重新打开" : "完成"}待办：${task.title}`} checked={task.completed} onChange={() => onToggle(task)} />
         <span className="checkmark">{task.completed && <Check size={13} />}</span>

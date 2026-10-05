@@ -1,20 +1,16 @@
-/* 设计令牌：现代 Windows 11 (Fluent 2) 桌面风。
-   - 强调色 = 微信绿 #07C160；中性灰阶带微冷调（Fluent 层叠）
-   - Segoe UI 系统字体栈（Windows 原生观感关键）
-   - 圆角克制（控件 6 / 面板 10）；柔和分层阴影；Mica 半透明
-   - 明暗双主题；4px 间距网格
-   为兼容既有组件引用，保留 --brand-* 作为现代蓝的别名。 */
+/* 全部页面共用的颜色、字体、间距、圆角与状态；保留旧变量的兼容映射。 */
 
 :root {
-  /* —— 强调色（微信绿）—— */
-  --accent:            #07C160;
-  --accent-hover:      #06AD56;
-  --accent-pressed:    #059A4C;
-  --accent-subtle:     #E7F7EE;   /* 浅绿底：选中态 / soft bg */
-  --accent-text:       #07C160;
-  --accent-ring:       rgba(7, 193, 96, .30);
+  /* —— 工作台强调色 —— */
+  --accent:            #167455;
+  --on-accent:         #FFFFFF;
+  --accent-hover:      #105f45;
+  --accent-pressed:    #0c5039;
+  --accent-subtle:     #eaf4ef;   /* 浅绿底：选中态 / soft bg */
+  --accent-text:       #146c4f;
+  --accent-ring:       rgba(22, 116, 85, .24);
 
-  /* —— 兼容别名（既有组件引用，统一映射到现代蓝）—— */
+  /* —— 兼容别名（既有组件引用，统一映射到强调色）—— */
   --brand-from:        var(--accent);
   --brand-to:          var(--accent);
   --brand-grad:        var(--accent);
@@ -26,7 +22,7 @@
   --brand-ring:        var(--accent-ring);
 
   /* —— 中性背景（微冷，Fluent 层叠）—— */
-  --bg-app:      #F3F3F3;   /* 应用底层（Mica 基色） */
+  --bg-app:      #f5f6f8;   /* 应用底层（Mica 基色） */
   --bg-surface:  #FFFFFF;   /* 卡片 / 侧栏 / 内容面 */
   --bg-subtle:   #FAFAFA;   /* 次级底（列表 / 输入框底） */
   --bg-inset:    #F0F0F0;   /* 凹陷 / 禁用底 */
@@ -49,7 +45,7 @@
   --tooltip-fg: #FFFFFF;
 
   /* —— 边框 —— */
-  --border-subtle:  #ECECEC;
+  --border-subtle:  #e7e9ed;
   --border-default: #DADADA;
   --border-strong:  #BFBFBF;
 
@@ -87,7 +83,7 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, .06), 0 1px 3px rgba(0, 0, 0, .04);
   --shadow-md: 0 3px 8px rgba(0, 0, 0, .08), 0 1px 2px rgba(0, 0, 0, .04);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, .12), 0 2px 6px rgba(0, 0, 0, .06);
-  --shadow-brand: 0 2px 8px rgba(15, 108, 189, .22);
+  --shadow-brand: 0 2px 6px rgba(22, 116, 85, .12);
 
   /* —— 间距（4px 网格）—— */
   --space-1:  4px;
@@ -106,27 +102,32 @@
   --dur-slow:   320ms;
 
   /* —— 布局尺寸（供参考；实际用 @media）—— */
+  --content-max: 1120px;
+  --page-max: 1560px;
+  --navigation-w: 200px;
+  --control-h: 36px;
   --sidebar-w: 240px;
-  --rail-w:    82px;
+  --rail-w:    184px;
 }
 
 /* ============================ 深色主题 ============================ */
 [data-theme="dark"] {
-  --accent:        #2DC66B;
-  --accent-hover:  #43D27E;
-  --accent-pressed:#5BDD8E;
-  --accent-subtle: rgba(45, 214, 123, .16);
-  --accent-text:   #2DC66B;
-  --accent-ring:   rgba(45, 214, 123, .40);
+  --accent:        #57cba0;
+  --on-accent:     #10281c;
+  --accent-hover:  #76d6b3;
+  --accent-pressed:#92e0c3;
+  --accent-subtle: #203c33;
+  --accent-text:   #72d3ae;
+  --accent-ring:   rgba(87, 203, 160, .3);
 
-  --bg-app:     #202020;
-  --bg-surface: #2B2B2B;
-  --bg-subtle:  #262626;
-  --bg-inset:   #1A1A1A;
+  --bg-app:     #191e22;
+  --bg-surface: #23292e;
+  --bg-subtle:  #20262b;
+  --bg-inset:   #1b2025;
   --bg-overlay: rgba(0, 0, 0, .6);
 
-  --mica:        rgba(32, 32, 32, .80);
-  --mica-strong: rgba(43, 43, 43, .66);
+  --mica:        #1e2429;
+  --mica-strong: #20262b;
 
   --text-strong:   #F3F3F3;
   --text-default:  #E6E6E6;
@@ -139,8 +140,8 @@
   --tooltip-bg: #EFEFEF;
   --tooltip-fg: #1B1B1B;
 
-  --border-subtle:  #3A3A3A;
-  --border-default: #4A4A4A;
+  --border-subtle:  #343c43;
+  --border-default: #475159;
   --border-strong:  #5E5E5E;
 
   --success: #2E9E4B; --success-bg: #1E3326; --success-fg: #8FE0A0;
@@ -153,5 +154,5 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, .34), 0 1px 3px rgba(0, 0, 0, .24);
   --shadow-md: 0 3px 8px rgba(0, 0, 0, .40), 0 1px 2px rgba(0, 0, 0, .28);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, .50), 0 2px 6px rgba(0, 0, 0, .34);
-  --shadow-brand: 0 2px 8px rgba(76, 194, 255, .28);
+  --shadow-brand: 0 2px 6px rgba(0, 0, 0, .2);
 }

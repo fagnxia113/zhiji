@@ -13,7 +13,7 @@ try {
   await page.getByRole("heading", { name: "工作台", exact: true }).waitFor();
 
   // 全局搜索框必须是 combobox：初始收起、无 listbox、无活动项
-  const box = page.getByRole("combobox", { name: "搜索会议、笔记与待办", exact: true });
+  const box = page.getByRole("combobox", { name: "搜索项目、记录、会议或待办", exact: true });
   assert.equal(await box.getAttribute("aria-expanded"), "false");
   assert.equal(await box.getAttribute("aria-activedescendant"), null);
   assert.equal(await page.getByRole("listbox", { name: "全局搜索结果" }).count(), 0);

@@ -39,7 +39,7 @@
   display: grid;
   place-items: center;
   border-radius: 11px;
-  color: white;
+  color: var(--on-accent);
   background: var(--accent);
   font-size: 15px;
   font-weight: 750;
@@ -58,7 +58,7 @@
   justify-content: center;
   border: 0;
   border-radius: var(--radius-lg);
-  color: white;
+  color: var(--on-accent);
   background: var(--accent);
   box-shadow: var(--shadow-brand);
   margin-bottom: var(--space-1);
@@ -154,11 +154,13 @@
 .header-search { position: relative; z-index: 20; }
 .global-search-results {
   position: absolute;
+  display: flex;
+  flex-direction: column;
   top: calc(100% + 8px);
   right: 0;
   width: min(520px, calc(100vw - 96px));
   max-height: min(520px, calc(100vh - 130px));
-  overflow: auto;
+  overflow: hidden;
   padding: var(--space-2);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
@@ -167,6 +169,7 @@
 }
 .global-search-summary {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
@@ -187,7 +190,7 @@
   cursor: pointer;
 }
 /* listbox 语义：去掉 ul 默认缩进与项目符号 */
-.global-search-list { margin: 0; padding: 0; list-style: none; }
+.global-search-list { margin: 0; padding: 0; list-style: none; min-height: 0; overflow-y: auto; }
 .global-search-result:hover,
 .global-search-result[aria-selected="true"] { background: var(--bg-inset); }
 .global-search-result > span:last-child { min-width: 0; }
@@ -197,6 +200,7 @@
 .global-search-result small { margin-top: 4px; color: var(--text-muted); font-size: 11px; }
 .global-search-result mark { border-radius: 3px; background: var(--warning-bg); color: inherit; }
 .global-search-empty { padding: var(--space-6); color: var(--text-faint); font-size: 12px; text-align: center; }
+.global-search-data-status { display: flex; flex-shrink: 0; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 12px; margin: 0; color: var(--text-muted); font-size: 12px; }
 .search-box:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-ring);

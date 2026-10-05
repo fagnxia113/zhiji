@@ -38,18 +38,17 @@ try {
   const before = await reads();
   await hub.getByRole("tab", { name: "资料", exact: true }).click();
   await hub.getByRole("button", { name: /参考资料.docx/ }).click();
-  await hub.getByText("添加资料", { exact: true }).click();
   await hub.getByRole("button", { name: "打开原文件", exact: true }).click();
   await page.waitForFunction(() => window.__fixture.workCalls.some(c => c.action === "open_resource"));
   await hub.getByRole("button", { name: "打开原文件", exact: true }).waitFor({ state: "visible" });
   await page.waitForFunction(() => !document.querySelector('.hub-file-detail .primary-button').disabled);
   assert.equal(await reads(), before, "opening an existing file must not reload data");
-  await hub.getByRole("button", { name: "选择本地文件", exact: true }).click();
+  await hub.getByRole("button", { name: "添加资料", exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('.hub-file-detail .primary-button').disabled);
   assert.equal(await reads(), before, "cancelled file picker must not reload data");
 
   await hub.getByRole("tab", { name: "概览", exact: true }).click();
-  await hub.getByText("编辑目标与阶段", { exact: true }).click();
+  await hub.getByText("项目设置", { exact: true }).click();
   await hub.getByRole("textbox", { name: "项目目标" }).fill("目标草稿尚未提交");
   await hub.getByRole("tab", { name: "活动", exact: true }).click();
   await hub.getByText("添加活动", { exact: true }).click();
@@ -93,7 +92,7 @@ try {
   await page.evaluate(() => { window.__fixture.failHub = true; });
   await chooseProject(/专题调研/);
   await hub.getByRole("alert").getByText(/项目读取失败/).waitFor();
-  await hub.getByText("编辑目标与阶段", { exact: true }).click();
+  await hub.getByText("项目设置", { exact: true }).click();
   assert.equal(await hub.getByRole("textbox", { name: "项目目标" }).isDisabled(), true);
   await page.evaluate(() => { window.__fixture.failHub = false; });
   await hub.getByRole("button", { name: "重新读取", exact: true }).click();
@@ -117,6 +116,7 @@ try {
   await hub.getByText("添加资料", { exact: true }).click();
   // Lazy catalog failure does not prevent ordinary project progress from being saved.
   await page.evaluate(() => { window.__fixture.failCatalog = true; });
+  await hub.getByText(/资料选项与复用/).click();
   await hub.getByText("复用已登记资料", { exact: true }).click();
   await hub.getByRole("alert").getByText(/可复用资料暂时无法读取/).waitFor();
   await hub.getByRole("tab", { name: "进展", exact: true }).click();

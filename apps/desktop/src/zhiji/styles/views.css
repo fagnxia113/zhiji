@@ -49,9 +49,7 @@
 
 /* —— 任务视图 —— */
 .tasks-page { max-width: 900px; }
-.tasks-intro { margin-bottom: var(--space-6); }
-.tasks-intro h2 { margin: 0; font-size: 20px; color: var(--text-strong); font-weight: 600; }
-.tasks-intro p { margin: var(--space-2) 0 0; color: var(--text-muted); font-size: 13px; }
+.tasks-intro { margin-bottom: var(--space-4); justify-content: flex-end; }
 
 /* —— 设置视图 —— */
 .settings-page {
@@ -238,7 +236,7 @@
 .settings-layout {
   max-width: 1120px;
   min-height: calc(100vh - 108px);
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: var(--navigation-w) minmax(0, 1fr);
   align-items: start;
   gap: var(--space-6);
 }
@@ -254,8 +252,8 @@
   background: var(--bg-surface);
   box-shadow: var(--shadow-xs);
 }
+.settings-sidebar-heading h2 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text-muted); }
 .settings-sidebar-heading { padding: var(--space-1) var(--space-2) var(--space-2); }
-.settings-sidebar-heading h2,
 .settings-content-heading h2 { margin: 0; color: var(--text-strong); font-size: 20px; font-weight: 650; }
 .settings-sidebar-heading p,
 .settings-content-heading p { margin: 5px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.55; }
@@ -313,7 +311,7 @@
   cursor: pointer;
   transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.settings-status-card:hover { border-color: var(--border-default); transform: translateY(-1px); }
+.settings-status-card:hover { border-color: var(--border-default); background: var(--bg-subtle); }
 .settings-status-icon {
   width: 38px;
   height: 38px;
@@ -465,8 +463,6 @@
 .home-command-copy h2 { margin: var(--space-2) 0 0; color: var(--text-strong); font-size: clamp(22px, 2.2vw, 30px); line-height: 1.25; letter-spacing: -.025em; }
 .home-command-actions { min-width: 210px; display: grid; gap: var(--space-2); position: relative; z-index: 1; }
 .home-command-actions > button { width: 100%; }
-.home-command-shortcut { display: flex; justify-content: center; align-items: center; gap: var(--space-2); padding: 5px; border: 0; color: var(--text-faint); background: transparent; font-size: 10px; }
-.home-command-shortcut kbd { padding: 2px 6px; border: 1px solid var(--border-default); border-radius: 4px; background: var(--bg-surface); font: inherit; }
 
 .continue-meeting-card {
   grid-column: 1 / -1;
@@ -501,7 +497,7 @@
 .journey-label.step-4 i { background: var(--success); }
 
 .home-focus-column { grid-column: 2; display: grid; gap: var(--space-4); }
-.home-focus-card, .home-guide-card { border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-xs); }
+.home-focus-card { border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-xs); }
 .home-focus-card { overflow: hidden; }
 .home-focus-head { display: flex; justify-content: space-between; gap: var(--space-3); align-items: center; padding: var(--space-4); border-bottom: 1px solid var(--border-subtle); }
 .home-focus-head h3 { margin: 0; color: var(--text-strong); font-size: 14px; }
@@ -527,11 +523,6 @@
 .home-all-clear { min-height: 140px; display: grid; place-content: center; justify-items: center; gap: 4px; color: var(--success-fg); text-align: center; }
 .home-all-clear strong { font-size: 12px; }
 .home-all-clear small { color: var(--text-faint); font-size: 9px; }
-.home-guide-card { padding: var(--space-4); }
-.home-guide-card > strong { color: var(--text-strong); font-size: 12px; }
-.home-guide-card ol { display: grid; gap: var(--space-3); margin: var(--space-3) 0 0; padding: 0; list-style: none; }
-.home-guide-card li { display: flex; align-items: center; gap: var(--space-2); color: var(--text-muted); font-size: 11px; }
-.home-guide-card li span { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; color: var(--accent-text); background: var(--accent-subtle); font-size: 9px; font-weight: 700; }
 
 .meeting-item-copy em { display: flex; align-items: center; gap: 6px; margin-top: 5px; color: var(--text-faint); font-size: 9px; font-style: normal; }
 .meeting-item-copy em .status-dot { width: 6px; height: 6px; }
@@ -577,6 +568,11 @@
 .journey-complete-copy small { color: var(--text-muted); font-size: 11px; }
 .meeting-context { margin-top: var(--space-3); }
 .meeting-review-tools { margin-top: var(--space-3); }
+.meeting-review-tools:empty { display: none; }
+.meeting-journey-card.is-complete .ai-workflow,
+.meeting-journey-card.is-complete .ai-flow-actions { display: contents; }
+.meeting-journey-card.is-complete .ai-flow-copy:not(:has([role="status"])) { display: none; }
+.meeting-journey-card.is-complete .ai-flow-copy:has([role="status"]) { width: 100%; }
 .meeting-review-tools .ai-workflow { margin-bottom: var(--space-3); }
 .meeting-workspace-tabs button { display: flex; align-items: center; justify-content: center; gap: var(--space-2); }
 .meeting-workspace-tabs button > span { display: flex; align-items: center; gap: 6px; }
