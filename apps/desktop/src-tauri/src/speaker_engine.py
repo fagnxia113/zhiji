@@ -2,6 +2,8 @@ import argparse
 import json
 import os
 import re
+import sys
+import time
 from collections import Counter
 
 
@@ -179,71 +181,31 @@ def assign_speakers(sentences, owners, labels):
         sentences[index]["spk"] = previous
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--audio", required=True)
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--model-cache", required=True)
-    parser.add_argument("--hotwords", default="")
-    args = parser.parse_args()
-
-    os.environ["MODELSCOPE_CACHE"] = args.model_cache
-    os.environ["HF_HOME"] = args.model_cache
-    os.environ["HF_HUB_OFFLINE"] = "1"
-    os.environ["TRANSFORMERS_OFFLINE"] = "1"
-    from funasr import AutoModel
+def recognize_audio(audio_path, hotwords, recognizer, get_speaker_model, skip_speakers=False):
     import soundfile as sf
 
-    asr_model = find_local_model(args.model_cache, "SeacoParaformer")
-    vad_model = find_local_model(args.model_cache, "FsmnVADStreaming")
-    punc_model = find_local_model(args.model_cache, "CTTransformer")
-    spk_model = find_local_model(args.model_cache, "CAMPPlus")
-    if not all((asr_model, vad_model, punc_model, spk_model)):
-        raise RuntimeError("高精度会议模型不完整，请在设置中点击“检查并修复实时引擎”")
-
-    # First pass: speech recognition and sentence timestamps. Keeping the speaker
-    # model out of this pass avoids a FunASR index mismatch on silent VAD segments.
-    recognizer = AutoModel(
-        model=asr_model,
-        vad_model=vad_model,
-        punc_model=punc_model,
-        vad_kwargs={"max_single_segment_time": 30000},
-        device="cpu",
-        disable_update=True,
-        disable_pbar=True,
-        log_level="ERROR",
-    )
-    result = recognizer.generate(
-        input=args.audio,
-        cache={},
-        hotword=args.hotwords,
-        use_itn=True,
-        batch_size_s=60,
-        merge_vad=True,
-        merge_length_s=15,
-        sentence_timestamp=True,
-    )
-    payload = result[0] if isinstance(result, list) else result
-    with sf.SoundFile(args.audio) as audio_file:
+    started = time.monotonic()
+    with sf.SoundFile(audio_path) as audio_file:
         sample_rate = audio_file.samplerate
-        if sample_rate != 16000:
+        if sample_rate != 16000 or audio_file.channels != 1:
             raise RuntimeError("说话人分析需要 16kHz 单声道录音")
+        result = recognizer.generate(
+            input=audio_path, cache={}, hotword=hotwords, use_itn=True,
+            batch_size_s=60, merge_vad=True, merge_length_s=15,
+            sentence_timestamp=True,
+        )
+        payload = result[0] if isinstance(result, list) else result
         sentences = normalize_sentence_info(payload, audio_file.frames)
         if not sentences:
             raise RuntimeError("会议引擎没有返回可用的转写分段")
-
-        # Second pass: voiceprints and clustering. This pass is independent from
-        # ASR, so an empty recognition segment cannot make result arrays diverge.
-        speaker_model = AutoModel(
-            model=spk_model,
-            device="cpu",
-            disable_update=True,
-            disable_pbar=True,
-            log_level="ERROR",
-        )
-        embeddings, owners = extract_embeddings(
-            speaker_model, speaker_chunks(sentences, audio_file, sample_rate)
-        )
+        print(f"ASR finished in {time.monotonic() - started:.1f}s", file=sys.stderr)
+        # An online microphone track already has a known owner. Keep recognition
+        # and timestamps identical while avoiding all voiceprint work on it.
+        embeddings, owners = None, []
+        if not skip_speakers:
+            embeddings, owners = extract_embeddings(
+                get_speaker_model(), speaker_chunks(sentences, audio_file, sample_rate)
+            )
     if embeddings is not None:
         labels = cluster_embeddings(embeddings)
         assign_speakers(sentences, owners, labels)
@@ -267,8 +229,71 @@ def main():
             }
         )
     transcript = "\n".join(f"【{item['speaker']}】{item['text']}" for item in segments)
+    print(f"Track finished in {time.monotonic() - started:.1f}s", file=sys.stderr)
+    return {"transcript": transcript, "segments": segments}
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    inputs = parser.add_mutually_exclusive_group(required=True)
+    inputs.add_argument("--audio")
+    inputs.add_argument("--jobs", help="JSON list of audio/skipSpeakers jobs")
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--model-cache", required=True)
+    parser.add_argument("--hotwords", default="")
+    parser.add_argument("--skip-speakers", action="store_true")
+    args = parser.parse_args()
+
+    os.environ["MODELSCOPE_CACHE"] = args.model_cache
+    os.environ["HF_HOME"] = args.model_cache
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    from funasr import AutoModel
+
+    asr_model = find_local_model(args.model_cache, "SeacoParaformer")
+    vad_model = find_local_model(args.model_cache, "FsmnVADStreaming")
+    punc_model = find_local_model(args.model_cache, "CTTransformer")
+    if not all((asr_model, vad_model, punc_model)):
+        raise RuntimeError("高精度会议模型不完整，请在设置中点击“检查并修复实时引擎”")
+    # Load the large recognizer once for both tracks. Each track still uses its
+    # own fresh decoding cache, so speech from one source cannot leak into another.
+    recognizer = AutoModel(
+        model=asr_model, vad_model=vad_model, punc_model=punc_model,
+        vad_kwargs={"max_single_segment_time": 30000}, device="cpu",
+        disable_update=True, disable_pbar=True, log_level="ERROR",
+    )
+    speaker_model = None
+
+    def get_speaker_model():
+        nonlocal speaker_model
+        if speaker_model is None:
+            model_path = find_local_model(args.model_cache, "CAMPPlus")
+            if not model_path:
+                raise RuntimeError("说话人模型不完整，请在设置中修复会议引擎")
+            speaker_model = AutoModel(
+                model=model_path, device="cpu", disable_update=True,
+                disable_pbar=True, log_level="ERROR",
+            )
+        return speaker_model
+
+    if args.jobs:
+        with open(args.jobs, encoding="utf-8") as source:
+            jobs = json.load(source)
+        results = []
+        for job in jobs:
+            try:
+                results.append(recognize_audio(
+                    job["audio"], args.hotwords, recognizer, get_speaker_model,
+                    bool(job.get("skipSpeakers", False)),
+                ))
+            except Exception as error:
+                # A bad/empty source must not discard the other track's transcript.
+                results.append({"error": str(error)})
+        result = {"results": results}
+    else:
+        result = recognize_audio(args.audio, args.hotwords, recognizer, get_speaker_model, args.skip_speakers)
     with open(args.output, "w", encoding="utf-8") as output:
-        json.dump({"transcript": transcript, "segments": segments}, output, ensure_ascii=False)
+        json.dump(result, output, ensure_ascii=False)
 
 
 if __name__ == "__main__":

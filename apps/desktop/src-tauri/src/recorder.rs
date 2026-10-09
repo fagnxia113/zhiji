@@ -28,19 +28,45 @@ pub struct DualTrackRecording {
     pub playback: PathBuf,
     pub microphone: PathBuf,
     pub system: PathBuf,
+    pub has_source_tracks: bool,
 }
 
 pub fn dual_track_paths(recordings_dir: &Path, meeting_id: &str) -> (PathBuf, PathBuf) {
+    let tracks = recordings_dir.join("tracks");
     (
-        recordings_dir.join(format!("{meeting_id}-mic.wav")),
-        recordings_dir.join(format!("{meeting_id}-system.wav")),
+        tracks.join(format!("{meeting_id}-mic.wav")),
+        tracks.join(format!("{meeting_id}-system.wav")),
     )
+}
+
+pub fn existing_dual_track_paths(recordings_dir: &Path, meeting_id: &str) -> (PathBuf, PathBuf) {
+    let (mic, system) = dual_track_paths(recordings_dir, meeting_id);
+    let resolve = |path: PathBuf| {
+        if path.is_file() { path } else { recordings_dir.join(path.file_name().unwrap()) }
+    };
+    (resolve(mic), resolve(system))
+}
+
+/// Move existing source tracks without replacing any destination file. If a
+/// previous move was interrupted, resolve each track independently on the next run.
+pub fn organize_dual_track_sidecars(recordings_dir: &Path, meeting_id: &str) -> Result<(), String> {
+    let (mic, system) = dual_track_paths(recordings_dir, meeting_id);
+    for target in [mic, system] {
+        let source = recordings_dir.join(target.file_name().unwrap());
+        if source.is_file() && !target.exists() {
+            fs::create_dir_all(recordings_dir.join("tracks")).map_err(|error| error.to_string())?;
+            fs::rename(source, target).map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 pub fn remove_dual_track_sidecars(recordings_dir: &Path, meeting_id: &str) {
     let (microphone, system) = dual_track_paths(recordings_dir, meeting_id);
     let _ = fs::remove_file(microphone);
     let _ = fs::remove_file(system);
+    let _ = fs::remove_file(recordings_dir.join(format!("{meeting_id}-mic.wav")));
+    let _ = fs::remove_file(recordings_dir.join(format!("{meeting_id}-system.wav")));
     let _ = fs::remove_file(recordings_dir.join(format!("{meeting_id}-mic-raw.wav")));
     let _ = fs::remove_file(recordings_dir.join(format!("{meeting_id}-sys.raw")));
 }
@@ -64,6 +90,7 @@ pub fn prepare_dual_track_audio(
 ) -> Result<DualTrackRecording, String> {
     if !ffmpeg.is_file() { return Err("安装包中未找到音频转换组件，请重新安装知记".to_string()); }
     let playback = recordings_dir.join(format!("{meeting_id}.wav"));
+    fs::create_dir_all(recordings_dir.join("tracks")).map_err(|error| error.to_string())?;
     let (microphone, system) = dual_track_paths(recordings_dir, meeting_id);
     let microphone_raw = recordings_dir.join(format!("{meeting_id}-mic-raw.wav"));
     for path in [&playback, &microphone, &system, &microphone_raw] { let _ = fs::remove_file(path); }
@@ -95,6 +122,17 @@ pub fn prepare_dual_track_audio(
         return Err(error);
     }
 
+    // A meeting with only microphone speech needs one original-quality file.
+    // Ignore only digital zero/one-level PCM dither, never quiet speech.
+    if crate::wav_track_is_empty(&system) {
+        if let Err(error) = fs::rename(&microphone_raw, &playback) {
+            remove_dual_track_sidecars(recordings_dir, meeting_id);
+            return Err(format!("保存麦克风录音失败：{error}"));
+        }
+        remove_dual_track_sidecars(recordings_dir, meeting_id);
+        return Ok(DualTrackRecording { playback, microphone, system, has_source_tracks: false });
+    }
+
     let clean_microphone_args = vec![
         "-y".into(),
         "-i".into(), microphone_raw.to_string_lossy().into_owned(),
@@ -123,6 +161,7 @@ pub fn prepare_dual_track_audio(
         playback.to_string_lossy().into_owned(),
     ];
     if let Err(error) = run_ffmpeg(ffmpeg, &playback_args, "双轨混音") {
+        let _ = fs::remove_file(&playback);
         remove_dual_track_sidecars(recordings_dir, meeting_id);
         return Err(error);
     }
@@ -131,7 +170,7 @@ pub fn prepare_dual_track_audio(
         remove_dual_track_sidecars(recordings_dir, meeting_id);
         return Err("双轨录音文件为空".to_string());
     }
-    Ok(DualTrackRecording { playback, microphone, system })
+    Ok(DualTrackRecording { playback, microphone, system, has_source_tracks: true })
 }
 
 /// 在真正开始录音前确认 Windows 默认播放设备可供 loopback 使用。

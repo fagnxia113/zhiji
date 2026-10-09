@@ -1,6 +1,124 @@
 use super::*;
 
 #[test]
+fn sidecar_organization_preserves_playback_and_handles_partial_moves() {
+    let directory = TestDirectory::new();
+    let root = directory.0.join("recordings");
+    fs::create_dir_all(root.join("tracks")).unwrap();
+    fs::write(root.join("meeting.wav"), b"playback").unwrap();
+    fs::write(root.join("meeting-mic.wav"), b"microphone").unwrap();
+    fs::write(root.join("tracks/meeting-system.wav"), b"system").unwrap();
+    let (mic, system) = recorder::existing_dual_track_paths(&root, "meeting");
+    assert_eq!(fs::read(mic).unwrap(), b"microphone");
+    assert_eq!(fs::read(system).unwrap(), b"system");
+    recorder::organize_dual_track_sidecars(&root, "meeting").unwrap();
+    recorder::organize_dual_track_sidecars(&root, "meeting").unwrap();
+    assert_eq!(fs::read(root.join("meeting.wav")).unwrap(), b"playback");
+    assert!(!root.join("meeting-mic.wav").exists());
+    let (mic, system) = recorder::dual_track_paths(&root, "meeting");
+    assert_eq!(fs::read(mic).unwrap(), b"microphone");
+    assert_eq!(fs::read(system).unwrap(), b"system");
+    remove_recording_bundle(&root, root.join("meeting.wav").to_str().unwrap());
+    assert!(!root.join("meeting.wav").exists());
+    assert!(!root.join("tracks/meeting-mic.wav").exists());
+    assert!(!root.join("tracks/meeting-system.wav").exists());
+}
+
+#[test]
+fn sidecar_conflict_never_overwrites_a_different_recording() {
+    let directory = TestDirectory::new();
+    fs::create_dir_all(directory.0.join("tracks")).unwrap();
+    fs::write(directory.0.join("meeting-mic.wav"), b"old microphone").unwrap();
+    fs::write(directory.0.join("tracks/meeting-mic.wav"), b"another source").unwrap();
+    recorder::organize_dual_track_sidecars(&directory.0, "meeting").unwrap();
+    assert_eq!(fs::read(directory.0.join("meeting-mic.wav")).unwrap(), b"old microphone");
+    assert_eq!(fs::read(directory.0.join("tracks/meeting-mic.wav")).unwrap(), b"another source");
+}
+
+fn test_wav(path: &Path, sample_rate: u32, channels: u16, sample: i16) {
+    let pcm: Vec<u8> = (0..160).flat_map(|_| sample.to_le_bytes()).collect();
+    let mut data = b"RIFF".to_vec();
+    data.extend((36u32 + pcm.len() as u32).to_le_bytes());
+    data.extend(b"WAVEfmt ");
+    data.extend(16u32.to_le_bytes());
+    data.extend(1u16.to_le_bytes());
+    data.extend(channels.to_le_bytes());
+    data.extend(sample_rate.to_le_bytes());
+    data.extend((sample_rate * u32::from(channels) * 2).to_le_bytes());
+    data.extend((channels * 2).to_le_bytes());
+    data.extend(16u16.to_le_bytes());
+    data.extend(b"data");
+    data.extend((pcm.len() as u32).to_le_bytes());
+    data.extend(pcm);
+    fs::write(path, data).unwrap();
+}
+
+#[test]
+fn wav_normalization_and_silence_checks_preserve_quiet_speech() {
+    let directory = TestDirectory::new();
+    let path = directory.0.join("audio.wav");
+    test_wav(&path, 48000, 2, 0);
+    assert!(!asr_wav_ready(&path));
+    test_wav(&path, 16000, 1, 0);
+    assert!(asr_wav_ready(&path));
+    assert!(wav_track_below_rms(&path, 0));
+    test_wav(&path, 16000, 1, 1);
+    assert!(!wav_track_below_rms(&path, 0));
+    assert!(wav_track_is_empty(&path));
+    test_wav(&path, 16000, 1, 2);
+    assert!(!wav_track_is_empty(&path));
+    assert!(wav_track_is_silent(&path));
+    fs::write(&path, b"broken wav").unwrap();
+    assert!(!wav_track_below_rms(&path, 0));
+}
+
+#[test]
+fn temporary_file_cleanup_keeps_originals_on_error() {
+    let directory = TestDirectory::new();
+    let original = directory.0.join("original.wav");
+    let generated = directory.0.join("converted.wav");
+    fs::write(&original, b"original").unwrap();
+    fs::write(&generated, b"temporary").unwrap();
+    let result: Result<(), &str> = (|| {
+        let _input = TemporaryFile { path: original.clone(), remove: false };
+        let _output = TemporaryFile { path: generated.clone(), remove: true };
+        Err("cancelled")
+    })();
+    assert!(result.is_err());
+    assert!(original.is_file());
+    assert!(!generated.exists());
+}
+
+#[test]
+fn microphone_only_capture_saves_one_file_and_online_capture_keeps_sources() {
+    let ffmpeg = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/ffmpeg/ffmpeg.exe");
+    if !ffmpeg.is_file() {
+        assert!(std::env::var_os("GITHUB_ACTIONS").is_none(), "CI must bundle FFmpeg before audio tests");
+        return;
+    }
+    let directory = TestDirectory::new();
+    let recordings = directory.0.join("recordings");
+    fs::create_dir_all(&recordings).unwrap();
+    let mic = directory.0.join("microphone.wav");
+    test_wav(&mic, 16000, 1, 1000);
+    for (key, sample, expect_sources) in [("room", 1i16, false), ("online", 2000i16, true)] {
+        let sys = recordings.join(format!("{key}-sys.raw"));
+        let pcm: Vec<u8> = (0..160).flat_map(|_| sample.to_le_bytes()).collect();
+        fs::write(&sys, pcm).unwrap();
+        let tracks = recorder::prepare_dual_track_audio(&ffmpeg, &recordings, key, &mic, &sys).unwrap();
+        assert!(asr_wav_ready(&tracks.playback));
+        assert_eq!(tracks.has_source_tracks, expect_sources);
+        assert_eq!(tracks.microphone.is_file(), expect_sources);
+        assert_eq!(tracks.system.is_file(), expect_sources);
+        assert!(mic.is_file());
+        remove_recording_bundle(&recordings, tracks.playback.to_str().unwrap());
+        assert!(!tracks.playback.exists());
+        assert!(!tracks.microphone.exists());
+        assert!(!tracks.system.exists());
+    }
+}
+
+#[test]
 fn project_hub_reuses_files_scopes_context_and_preserves_originals() {
     let dir = TestDirectory::new();
     let db = sample_database(&dir.0.join("hub.sqlite3"));

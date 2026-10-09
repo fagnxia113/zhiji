@@ -78,7 +78,9 @@ jobs:
         run: cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 
       - name: Check embedded meeting engines
-        run: python -m py_compile apps/desktop/src-tauri/src/live_asr.py apps/desktop/src-tauri/src/speaker_engine.py
+        run: |
+          python -m py_compile apps/desktop/src-tauri/src/live_asr.py apps/desktop/src-tauri/src/speaker_engine.py
+          python scripts/test-speaker-engine.py
 
       - name: Bundle local Chinese ASR runtime
         shell: pwsh

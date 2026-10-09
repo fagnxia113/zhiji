@@ -13,6 +13,7 @@ mod live_session;
 mod workbench;
 mod project_hub;
 mod local_api;
+mod analysis_jobs;
 pub use local_api::run_mcp_stdio;
 
 #[cfg(test)]
@@ -39,7 +40,7 @@ const OFFICIAL_PYPI_INDEX: &str = "https://pypi.org/simple";
 const PYTORCH_CPU_INDEX: &str = "https://download.pytorch.org/whl/cpu";
 const TORCH_CPU_VERSION: &str = "torch==2.11.0+cpu";
 const TORCHAUDIO_CPU_VERSION: &str = "torchaudio==2.11.0+cpu";
-const SPEAKER_ENGINE_VERSION: &str = "9";
+const SPEAKER_ENGINE_VERSION: &str = "10";
 const SPEAKER_MODELS_VERSION: &str = "quality-2pass-v1";
 const VC_RUNTIME_DLLS: &[&str] = &[
     "concrt140.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll",
@@ -149,6 +150,7 @@ struct AppState {
     speaker_models_dir: PathBuf,
     cancel_flag: Arc<AtomicBool>,
     cancel_child: Arc<Mutex<Option<Child>>>,
+    analysis_parts: Mutex<analysis_jobs::RetryCache<AnalysisResponse>>,
     active_recording: Mutex<Option<String>>,
     recorders: Mutex<HashMap<String, recorder::SystemCaptureHandle>>,
     live_sessions: Mutex<HashMap<String, live_session::LiveSession>>,
@@ -673,13 +675,30 @@ fn open_state(app: &AppHandle) -> Result<AppState, Box<dyn Error>> {
     let database_path = data_dir.join("zhiji.sqlite3");
     let connection = Connection::open(&database_path)?;
     initialize_database(&connection)?;
+    // Only move sidecars associated with a saved recording. Original imports and
+    // the database playback path stay in place; legacy paths remain readable.
+    let audio_paths = {
+        let mut statement = connection.prepare("SELECT audio_path FROM meetings WHERE audio_path IS NOT NULL")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+    for audio_path in audio_paths {
+        let audio = Path::new(&audio_path);
+        if audio.parent().is_some_and(|parent| path_within(parent, &recordings_dir)) {
+            if let Some(stem) = audio.file_stem().and_then(|stem| stem.to_str()) {
+                if let Err(error) = recorder::organize_dual_track_sidecars(&recordings_dir, stem) {
+                    eprintln!("整理录音辅助音轨失败，继续使用原路径：{error}");
+                }
+            }
+        }
+    }
     if setting(&connection, "asr_provider", "local").is_ok_and(|provider| provider == "local") {
         live_session::warm_engine(speaker_engine_dir.clone(), speaker_models_dir.clone());
     }
     if let Err(error) = create_daily_backup(&connection, &backups_dir) {
         eprintln!("自动备份失败：{error}");
     }
-    Ok(AppState { connection: Mutex::new(connection), data_dir, default_data_dir, config_dir, backups_dir, models_dir, recordings_dir, runtime_dir, ffmpeg_dir, vcrt_dir, speaker_engine_dir, speaker_models_dir, cancel_flag: Arc::new(AtomicBool::new(false)), cancel_child: Arc::new(Mutex::new(None)), active_recording: Mutex::new(None), recorders: Mutex::new(HashMap::new()), live_sessions: Mutex::new(HashMap::new()), sleep_prevention: Mutex::new(None) })
+    Ok(AppState { connection: Mutex::new(connection), data_dir, default_data_dir, config_dir, backups_dir, models_dir, recordings_dir, runtime_dir, ffmpeg_dir, vcrt_dir, speaker_engine_dir, speaker_models_dir, cancel_flag: Arc::new(AtomicBool::new(false)), cancel_child: Arc::new(Mutex::new(None)), analysis_parts: Mutex::new(analysis_jobs::RetryCache::new()), active_recording: Mutex::new(None), recorders: Mutex::new(HashMap::new()), live_sessions: Mutex::new(HashMap::new()), sleep_prevention: Mutex::new(None) })
 }
 
 fn initialize_database(connection: &Connection) -> Result<(), Box<dyn Error>> {
@@ -1148,21 +1167,50 @@ fn clean_local_transcript(raw: &str) -> String {
     }).collect::<Vec<_>>().join("\n")
 }
 
-fn to_wav(runtime_dir: &Path, ffmpeg_dir: &Path, audio_path: &str) -> Result<(PathBuf, bool), String> {
+struct TemporaryFile { path: PathBuf, remove: bool }
+impl Drop for TemporaryFile {
+    fn drop(&mut self) { if self.remove { let _ = fs::remove_file(&self.path); } }
+}
+
+fn asr_wav_ready(path: &Path) -> bool {
+    use std::io::{Seek, SeekFrom};
+    let Ok(mut file) = fs::File::open(path) else { return false; };
+    let mut riff = [0u8; 12];
+    if file.read_exact(&mut riff).is_err() || &riff[..4] != b"RIFF" || &riff[8..] != b"WAVE" { return false; }
+    let mut header = [0u8; 8];
+    while file.read_exact(&mut header).is_ok() {
+        let size = u32::from_le_bytes(header[4..8].try_into().unwrap());
+        if &header[..4] == b"fmt " {
+            let mut fmt = [0u8; 16];
+            if size < 16 || file.read_exact(&mut fmt).is_err() { return false; }
+            return u16::from_le_bytes([fmt[0], fmt[1]]) == 1
+                && u16::from_le_bytes([fmt[2], fmt[3]]) == 1
+                && u32::from_le_bytes(fmt[4..8].try_into().unwrap()) == 16000
+                && u16::from_le_bytes([fmt[14], fmt[15]]) == 16;
+        }
+        if file.seek(SeekFrom::Current(i64::from(size) + i64::from(size % 2))).is_err() { return false; }
+    }
+    false
+}
+
+fn to_wav(_runtime_dir: &Path, ffmpeg_dir: &Path, audio_path: &str) -> Result<TemporaryFile, String> {
     let input = PathBuf::from(audio_path);
-    if input.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("wav")) { return Ok((input, false)); }
+    if asr_wav_ready(&input) { return Ok(TemporaryFile { path: input, remove: false }); }
     let ffmpeg = ffmpeg_dir.join(FFMPEG_EXECUTABLE);
     if !ffmpeg.is_file() { return Err("安装包中未找到音频转换组件，请重新安装知记".to_string()); }
-    let output = runtime_dir.join(format!("zhiji-{}.wav", Uuid::new_v4()));
-    let output_arg = output.to_string_lossy().into_owned();
-    let result = Command::new(ffmpeg)
-        .args([
+    let temp_dir = std::env::temp_dir().join("zhiji-asr");
+    fs::create_dir_all(&temp_dir).map_err(app_error)?;
+    let output = TemporaryFile { path: temp_dir.join(format!("zhiji-{}.wav", Uuid::new_v4())), remove: true };
+    let output_arg = output.path.to_string_lossy().into_owned();
+    let mut command = Command::new(ffmpeg);
+    command.args([
             "-y", "-i", audio_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", &output_arg,
-        ])
-        .output()
-        .map_err(app_error)?;
+        ]);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let result = command.output().map_err(app_error)?;
     if !result.status.success() { return Err(format!("无法读取录音：{}", String::from_utf8_lossy(&result.stderr).trim())); }
-    Ok((output, true))
+    Ok(output)
 }
 
 fn probe_audio_duration(ffmpeg_dir: &Path, audio_path: &Path) -> i64 {
@@ -1218,10 +1266,10 @@ fn run_local_asr(
     let model = models_dir.join(SENSEVOICE_MODEL_NAME);
     let vad = models_dir.join(FSMN_VAD_MODEL_NAME);
     if !model.is_file() || !vad.is_file() { return Err("请先在设置中下载本地语音模型".to_string()); }
-    let (wav_path, remove_wav) = to_wav(&runtime_dir, &ffmpeg_dir, &audio_path)?;
+    let wav = to_wav(&runtime_dir, &ffmpeg_dir, &audio_path)?;
     let model_arg = model.to_string_lossy().into_owned();
     let vad_arg = vad.to_string_lossy().into_owned();
-    let audio_arg = wav_path.to_string_lossy().into_owned();
+    let audio_arg = wav.path.to_string_lossy().into_owned();
     let mut command = Command::new(&executable);
     command.current_dir(&runtime_dir).arg("-m").arg(model_arg).arg("--vad").arg(vad_arg).arg("-a").arg(audio_arg);
     let mut paths = vec![vcrt_dir, runtime_dir.clone()];
@@ -1231,7 +1279,6 @@ fn run_local_asr(
     command.creation_flags(CREATE_NO_WINDOW);
     // 共享子进程槽持续保留句柄，取消按钮才能真正终止正在运行的本地引擎。
     let output = run_cancelable_command(command, &cancel_flag, &cancel_child)?;
-    if remove_wav { let _ = fs::remove_file(&wav_path); }
     if cancel_flag.load(Ordering::SeqCst) { return Err("已取消转写".to_string()); }
     if !output.status.success() { return Err(format!("本地语音引擎运行失败：{}", String::from_utf8_lossy(&output.stderr).trim())); }
     let transcript = clean_local_transcript(&String::from_utf8_lossy(&output.stdout));
@@ -1582,6 +1629,70 @@ fn install_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf, vcrt_dir: Pa
     Ok(())
 }
 
+fn run_speaker_jobs(
+    engine_dir: PathBuf,
+    models_dir: PathBuf,
+    runtime_dir: PathBuf,
+    ffmpeg_dir: PathBuf,
+    vcrt_dir: PathBuf,
+    jobs: Vec<(String, bool)>,
+    hotwords: String,
+    cancel_flag: Arc<AtomicBool>,
+    cancel_child: Arc<Mutex<Option<Child>>>,
+) -> Result<Vec<Result<SpeakerTranscript, String>>, String> {
+    let python = speaker_python(&engine_dir);
+    let script = speaker_script(&engine_dir);
+    if !speaker_engine_installed(&engine_dir) || !python.is_file() || !script.is_file() { return Err("说话人引擎需要修复，请点击“安装说话人引擎”完成升级".to_string()); }
+    prepare_speaker_runtime(&vcrt_dir, &engine_dir)?;
+    if cancel_flag.load(Ordering::SeqCst) { return Err("已取消转写".to_string()); }
+    let audio_files: Vec<_> = jobs.iter().map(|(audio, _)| to_wav(&runtime_dir, &ffmpeg_dir, audio)).collect();
+    let input = TemporaryFile { path: engine_dir.join(format!("speaker-jobs-{}.json", Uuid::new_v4())), remove: true };
+    let output = TemporaryFile { path: engine_dir.join(format!("speaker-result-{}.json", Uuid::new_v4())), remove: true };
+    let payload: Vec<_> = audio_files.iter().zip(&jobs).filter_map(|(audio, (_, skip_speakers))|
+        audio.as_ref().ok().map(|audio| json!({"audio": audio.path.to_string_lossy(), "skipSpeakers": skip_speakers}))).collect();
+    if payload.is_empty() { return Ok(audio_files.into_iter().map(|audio| Err(audio.err().unwrap())).collect()); }
+    fs::write(&input.path, serde_json::to_vec(&payload).map_err(app_error)?).map_err(app_error)?;
+    let input_arg = input.path.to_string_lossy().into_owned();
+    let output_arg = output.path.to_string_lossy().into_owned();
+    let models_arg = models_dir.to_string_lossy().into_owned();
+    let script_arg = script.to_string_lossy().into_owned();
+    run_cancelable_python(
+        &python,
+        &[&script_arg, "--jobs", &input_arg, "--output", &output_arg, "--model-cache", &models_arg, "--hotwords", &hotwords],
+        "本地说话人分离",
+        &cancel_flag,
+        &cancel_child,
+    )?;
+    let result: serde_json::Value = serde_json::from_str(&fs::read_to_string(&output.path).map_err(app_error)?)
+        .map_err(|error| format!("本地说话人分离结果无效：{error}"))?;
+    let results = result.get("results").and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "本地会议引擎没有返回音轨结果".to_string())?;
+    if results.len() != payload.len() { return Err("本地会议引擎返回的音轨数量不一致".to_string()); }
+    let mut results = results.iter();
+    let transcripts: Vec<_> = audio_files.into_iter().map(|audio| {
+        let _audio = audio?;
+        let result = results.next().ok_or_else(|| "本地会议引擎缺少音轨结果".to_string())?;
+        if let Some(error) = result.get("error").and_then(serde_json::Value::as_str) { return Err(error.to_string()); }
+        let transcript: SpeakerTranscript = serde_json::from_value(result.clone()).map_err(app_error)?;
+        normalize_speaker_transcript(transcript)
+    }).collect();
+    if transcripts.iter().any(Result::is_ok) {
+        fs::write(speaker_models_marker(&models_dir), SPEAKER_MODELS_VERSION).map_err(app_error)?;
+    }
+    Ok(transcripts)
+}
+
+fn normalize_speaker_transcript(mut transcript: SpeakerTranscript) -> Result<SpeakerTranscript, String> {
+    for segment in &mut transcript.segments { segment.text = strip_sensevoice_tokens(&segment.text).trim().to_string(); }
+    transcript.segments.retain(|segment| !segment.text.is_empty());
+    transcript.transcript = transcript.segments.iter()
+        .map(|segment| format!("【{}】{}", segment.speaker, segment.text))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if transcript.transcript.trim().is_empty() || transcript.segments.is_empty() { return Err("本地说话人分离没有返回可用结果".to_string()); }
+    Ok(transcript)
+}
+
 fn run_speaker_engine(
     engine_dir: PathBuf,
     models_dir: PathBuf,
@@ -1593,65 +1704,12 @@ fn run_speaker_engine(
     cancel_flag: Arc<AtomicBool>,
     cancel_child: Arc<Mutex<Option<Child>>>,
 ) -> Result<SpeakerTranscript, String> {
-    let python = speaker_python(&engine_dir);
-    let script = speaker_script(&engine_dir);
-    if !speaker_engine_installed(&engine_dir) || !python.is_file() || !script.is_file() { return Err("说话人引擎需要修复，请点击“安装说话人引擎”完成升级".to_string()); }
-    prepare_speaker_runtime(&vcrt_dir, &engine_dir)?;
-    if cancel_flag.load(Ordering::SeqCst) { return Err("已取消转写".to_string()); }
-    let (wav_path, remove_wav) = to_wav(&runtime_dir, &ffmpeg_dir, &audio_path)?;
-    let result_path = engine_dir.join(format!("speaker-result-{}.json", Uuid::new_v4()));
-    let audio_arg = wav_path.to_string_lossy().into_owned();
-    let output_arg = result_path.to_string_lossy().into_owned();
-    let models_arg = models_dir.to_string_lossy().into_owned();
-    let script_arg = script.to_string_lossy().into_owned();
-    let result = run_cancelable_python(
-        &python,
-        &[&script_arg, "--audio", &audio_arg, "--output", &output_arg, "--model-cache", &models_arg, "--hotwords", &hotwords],
-        "本地说话人分离",
-        &cancel_flag,
-        &cancel_child,
-    );
-    if remove_wav { let _ = fs::remove_file(&wav_path); }
-    result?;
-    let mut input = fs::File::open(&result_path).map_err(app_error)?;
-    let mut content = String::new();
-    input.read_to_string(&mut content).map_err(app_error)?;
-    let _ = fs::remove_file(&result_path);
-    let mut transcript: SpeakerTranscript = serde_json::from_str(&content).map_err(|error| format!("本地说话人分离结果无效：{error}"))?;
-    for segment in &mut transcript.segments { segment.text = strip_sensevoice_tokens(&segment.text).trim().to_string(); }
-    transcript.segments.retain(|segment| !segment.text.is_empty());
-    transcript.transcript = transcript.segments.iter()
-        .map(|segment| format!("【{}】{}", segment.speaker, segment.text))
-        .collect::<Vec<_>>()
-        .join("\n");
-    if transcript.transcript.trim().is_empty() || transcript.segments.is_empty() { return Err("本地说话人分离没有返回可用结果".to_string()); }
-    fs::write(speaker_models_marker(&models_dir), SPEAKER_MODELS_VERSION).map_err(app_error)?;
-    Ok(transcript)
+    run_speaker_jobs(engine_dir, models_dir, runtime_dir, ffmpeg_dir, vcrt_dir,
+        vec![(audio_path, false)], hotwords, cancel_flag, cancel_child)?
+        .pop().ok_or_else(|| "本地会议引擎没有返回结果".to_string())?
 }
 
-fn run_source_transcript(
-    engine_dir: PathBuf,
-    models_dir: PathBuf,
-    runtime_dir: PathBuf,
-    ffmpeg_dir: PathBuf,
-    vcrt_dir: PathBuf,
-    audio_path: PathBuf,
-    hotwords: String,
-    fixed_speaker: Option<(&str, i64)>,
-    cancel_flag: Arc<AtomicBool>,
-    cancel_child: Arc<Mutex<Option<Child>>>,
-) -> Result<Vec<SpeakerSegment>, String> {
-    let mut result = run_speaker_engine(
-        engine_dir,
-        models_dir,
-        runtime_dir,
-        ffmpeg_dir,
-        vcrt_dir,
-        audio_path.to_string_lossy().into_owned(),
-        hotwords,
-        cancel_flag,
-        cancel_child,
-    )?;
+fn remap_source_segments(mut result: SpeakerTranscript, fixed_speaker: Option<(&str, i64)>) -> Vec<SpeakerSegment> {
     if let Some((speaker, speaker_id)) = fixed_speaker {
         for segment in &mut result.segments {
             segment.speaker = speaker.to_string();
@@ -1670,21 +1728,29 @@ fn run_source_transcript(
             segment.speaker = format!("会议发言人 {mapped}");
         }
     }
-    Ok(result.segments)
+    result.segments
 }
 
 // 16kHz 单声道 s16le WAV 的静音检测：system 轨全静音说明这是一场线下现场会议
 // （说话人都在房间里、麦克风收全场），而不是线上会议（对方声音从电脑播放）。
 // 现场会议必须对麦克风轨做完整声纹聚类，否则全场所有人都会被标成“我”。
 fn wav_track_is_silent(path: &Path) -> bool {
-    let Ok(mut file) = fs::File::open(path) else { return true; };
+    wav_track_below_rms(path, 100)
+}
+
+// A strict check for zero-level PCM/dither. Suitable for omitting empty source
+// files; the looser meeting-type RMS threshold must never be used to delete audio.
+fn wav_track_is_empty(path: &Path) -> bool { wav_track_below_rms(path, 1) }
+
+fn wav_track_below_rms(path: &Path, threshold: u64) -> bool {
+    let Ok(mut file) = fs::File::open(path) else { return false; };
     // 正确解析 RIFF chunk 链定位 data 块：ffmpeg 从 raw 输入转 WAV 会写 LIST INFO
     // 元数据块（v2.0.7 曾假设头固定 44 字节，把 LIST 里的 ASCII 当音频扫出假活动窗，
     // 导致现场会议检测永远失灵——见 2026-09-11 复盘）。
     use std::io::Read;
     let mut riff = [0u8; 12];
-    if file.read_exact(&mut riff).is_err() { return true; }
-    if &riff[0..4] != b"RIFF" || &riff[8..12] != b"WAVE" { return true; }
+    if file.read_exact(&mut riff).is_err() { return false; }
+    if &riff[0..4] != b"RIFF" || &riff[8..12] != b"WAVE" { return false; }
     let mut data_offset: Option<u64> = None;
     let mut header = [0u8; 8];
     loop {
@@ -1699,29 +1765,29 @@ fn wav_track_is_silent(path: &Path) -> bool {
         let skip = (chunk_size + (chunk_size & 1)) as i64;
         if std::io::Seek::seek(&mut file, std::io::SeekFrom::Current(skip)).is_err() { break; }
     }
-    let Some(data_size) = data_offset else { return true; };
+    let Some(data_size) = data_offset else { return false; };
     let mut chunk = [0u8; 32000]; // 1 秒音频
     let mut windows = 0usize;
     let mut active_windows = 0usize;
     let mut remaining = data_size;
     while remaining > 0 {
         let want = chunk.len().min(remaining as usize);
-        let read = match file.read(&mut chunk[..want]) { Ok(0) => break, Ok(n) => n, Err(_) => break };
+        let read = match file.read(&mut chunk[..want]) { Ok(0) => return false, Ok(n) => n, Err(_) => return false };
         if read == 0 { break; }
         remaining -= read as u64;
         let samples = read / 2;
         let mut sum_squares = 0u64;
         for pair in chunk[..samples * 2].chunks_exact(2) {
             let value = i16::from_le_bytes([pair[0], pair[1]]) as i32;
+            if threshold <= 1 && value.unsigned_abs() as u64 > threshold { return false; }
             sum_squares += (value * value) as u64;
         }
         windows += 1;
-        if samples > 0 && (sum_squares / samples as u64) > 100u64.pow(2) {
-            active_windows += 1;
-        }
+        if samples > 0 && sum_squares > threshold.pow(2) * samples as u64 { active_windows += 1; }
+        if active_windows > 0 { return false; }
         if read < want { break; }
     }
-    windows > 0 && active_windows == 0
+    windows > 0 && remaining == 0 && active_windows == 0
 }
 
 fn run_dual_track_speaker_engine(
@@ -1741,40 +1807,27 @@ fn run_dual_track_speaker_engine(
     // 现场会议（system 轨全静音）：跳过空轨转写（纯静音跑识别只会白等几分钟再报错），
     // 麦克风轨改走完整声纹聚类，还原“好几个人讲话”的真实说话人。
     let in_room_meeting = wav_track_is_silent(&system);
+    let mut jobs = Vec::new();
+    let mut sources = Vec::new();
     if !in_room_meeting {
-        match run_source_transcript(
-            engine_dir.clone(),
-            models_dir.clone(),
-            runtime_dir.clone(),
-            ffmpeg_dir.clone(),
-            vcrt_dir.clone(),
-            system,
-            hotwords.clone(),
-            None,
-            cancel_flag.clone(),
-            cancel_child.clone(),
-        ) {
-            Ok(source_segments) => segments.extend(source_segments),
-            Err(error) if error.contains("已取消") => return Err(error),
-            Err(error) => failures.push(format!("会议声音：{error}")),
-        }
+        jobs.push((system.to_string_lossy().into_owned(), false));
+        sources.push(("会议声音", None));
     }
     let microphone_speaker: Option<(&str, i64)> = if in_room_meeting { None } else { Some(("我", 0)) };
-    match run_source_transcript(
-        engine_dir,
-        models_dir,
-        runtime_dir,
-        ffmpeg_dir,
-        vcrt_dir,
-        microphone,
-        hotwords,
-        microphone_speaker,
-        cancel_flag,
-        cancel_child,
-    ) {
-        Ok(source_segments) => segments.extend(source_segments),
-        Err(error) if error.contains("已取消") => return Err(error),
-        Err(error) => failures.push(format!("麦克风：{error}")),
+    // With no microphone speech, online meetings only need the system track.
+    // In-room meetings always keep the full microphone speaker pass.
+    if in_room_meeting || !wav_track_is_empty(&microphone) {
+        jobs.push((microphone.to_string_lossy().into_owned(), microphone_speaker.is_some()));
+        sources.push(("麦克风", microphone_speaker));
+    }
+    let results = run_speaker_jobs(engine_dir, models_dir, runtime_dir, ffmpeg_dir, vcrt_dir,
+        jobs, hotwords, cancel_flag, cancel_child)?;
+    for (result, (source, fixed_speaker)) in results.into_iter().zip(sources) {
+        match result {
+            Ok(result) => segments.extend(remap_source_segments(result, fixed_speaker)),
+            Err(error) if error.contains("已取消") => return Err(error),
+            Err(error) => failures.push(format!("{source}：{error}")),
+        }
     }
     if segments.is_empty() {
         return Err(format!("双轨会议转写没有返回可用结果（{}）", failures.join("；")));
@@ -2678,10 +2731,11 @@ fn recover_interrupted_recordings(state: State<'_, AppState>) -> Result<usize, S
             }
             if let Some(recovered_key) = path.file_stem().and_then(|value| value.to_str()) {
                 let pending_key = format!("{meeting_id}-pending");
-                let (pending_microphone, pending_system) = recorder::dual_track_paths(&state.recordings_dir, &pending_key);
+                let (pending_microphone, pending_system) = recorder::existing_dual_track_paths(&state.recordings_dir, &pending_key);
                 let (recovered_microphone, recovered_system) = recorder::dual_track_paths(&state.recordings_dir, recovered_key);
                 if pending_microphone.is_file() && pending_system.is_file() {
-                    if fs::rename(&pending_microphone, &recovered_microphone)
+                    if fs::create_dir_all(state.recordings_dir.join("tracks"))
+                        .and_then(|_| fs::rename(&pending_microphone, &recovered_microphone))
                         .and_then(|_| fs::rename(&pending_system, &recovered_system))
                         .is_err()
                     {
@@ -2750,8 +2804,10 @@ fn finalize_recording_inner(state: &AppState, meeting_id: &str, duration_seconds
                     Ok(tracks) => {
                         let _ = fs::remove_file(&path);
                         let _ = fs::remove_file(&sys_raw);
-                        eprintln!("双轨录音已保留：microphone={}, system={}", tracks.microphone.display(), tracks.system.display());
-                        (tracks.playback, true, None)
+                        if tracks.has_source_tracks {
+                            eprintln!("双轨录音已保留：microphone={}, system={}", tracks.microphone.display(), tracks.system.display());
+                        }
+                        (tracks.playback, tracks.has_source_tracks, None)
                     }
                     Err(e) => { eprintln!("双轨录音处理失败，回退仅麦克风：{e}"); recorder::remove_dual_track_sidecars(&state.recordings_dir, &pending_key); (path, false, Some(format!("电脑声音处理失败，已保存麦克风录音：{e}"))) }
                 },
@@ -2894,7 +2950,6 @@ async fn transcribe_meeting(state: State<'_, AppState>, meeting_id: String) -> R
     // 会后模型本身会加载大权重；先释放预热的实时双模型，避免低内存电脑同时驻留多套模型。
     live_session::shutdown_warm_engine();
     let transcript_result = transcribe_audio(&state, &meeting).await;
-    live_session::warm_engine(state.speaker_engine_dir.clone(), state.speaker_models_dir.clone());
     let transcript = transcript_result?;
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
     connection.execute("UPDATE meetings SET transcript = ?2, status = ?3, updated_at = ?4 WHERE id = ?1", params![meeting_id, transcript, "已转写", now()]).map_err(app_error)?;
@@ -2926,7 +2981,7 @@ async fn transcribe_meeting_with_speakers(state: State<'_, AppState>, meeting_id
         .file_stem()
         .and_then(|value| value.to_str())
         .unwrap_or(&meeting.id);
-    let (microphone_track, system_track) = recorder::dual_track_paths(&state.recordings_dir, recording_key);
+    let (microphone_track, system_track) = recorder::existing_dual_track_paths(&state.recordings_dir, recording_key);
     let dual_track = microphone_track.is_file() && system_track.is_file();
     let engine_dir = state.speaker_engine_dir.clone();
     let models_dir = state.speaker_models_dir.clone();
@@ -2947,7 +3002,6 @@ async fn transcribe_meeting_with_speakers(state: State<'_, AppState>, meeting_id
             run_speaker_engine(engine_dir, models_dir, runtime_dir, ffmpeg_dir, vcrt_dir, playback_path, hotwords, cancel_flag, cancel_child)
         }
     }).await.map_err(|error| format!("说话人分离任务中断：{error}"));
-    live_session::warm_engine(state.speaker_engine_dir.clone(), state.speaker_models_dir.clone());
     let result = result??;
     let segments = serde_json::to_string(&result.segments).map_err(app_error)?;
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
@@ -3197,9 +3251,9 @@ fn dedupe_source_highlights(items: Vec<AnalysisSourceHighlight>) -> Vec<Analysis
         .collect()
 }
 
-/// 长会议分段纪要主流程：分块逐段生成 → decisions/actionItems/sourceHighlights 程序侧按序去重合并
+/// 长会议分段纪要主流程：最多两段并行生成 → decisions/actionItems/sourceHighlights 程序侧按序去重合并
 /// → 各段 minutes 交一次短请求整理成完整纪要并提炼整体主题。任一段失败则整体报错（可重试）。
-fn generate_chunked_analysis(settings: &AiSettings, api_key: &str, meeting: &Meeting, template: &str) -> Result<AnalysisResponse, String> {
+fn generate_chunked_analysis(state: &AppState, settings: &AiSettings, api_key: &str, meeting: &Meeting, template: &str) -> Result<AnalysisResponse, String> {
     let rows = meeting_transcript_rows(meeting);
     let chunks = chunk_transcript_rows(&rows, ANALYSIS_SINGLE_CHARS);
     let total = chunks.len();
@@ -3210,10 +3264,24 @@ fn generate_chunked_analysis(settings: &AiSettings, api_key: &str, meeting: &Mee
     let mut action_items: Vec<AnalysisActionItem> = Vec::new();
     let mut highlights: Vec<AnalysisSourceHighlight> = Vec::new();
     let mut minutes_parts: Vec<String> = Vec::new();
-    for (index, chunk) in chunks.iter().enumerate() {
-        let part_prompt = build_chunk_user_prompt(meeting, template, index + 1, total, chunk);
-        let part = request_analysis_with(settings, api_key, ANALYSIS_CHUNK_SYSTEM_PROMPT, &part_prompt)
-            .map_err(|error| format!("长会议分段生成失败（第 {}/{} 段）：{}", index + 1, total, error))?;
+    let prompts: Vec<String> = chunks.iter().enumerate()
+        .map(|(index, chunk)| build_chunk_user_prompt(meeting, template, index + 1, total, chunk)).collect();
+    let keys: Vec<u64> = prompts.iter().map(|prompt| {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        (meeting.id.as_str(), settings.base_url.as_str(), settings.analysis_model.as_str(), api_key, ANALYSIS_CHUNK_SYSTEM_PROMPT, prompt).hash(&mut hasher);
+        hasher.finish()
+    }).collect();
+    let parts = analysis_jobs::ordered_parallel_map(total, 2, |index| {
+        let cached = state.analysis_parts.lock().map_err(|_| "纪要缓存被占用，请重试".to_string())?.get(keys[index]);
+        if let Some(part) = cached { return Ok(part); }
+        let part = request_analysis_with(settings, api_key, ANALYSIS_CHUNK_SYSTEM_PROMPT, &prompts[index])
+            .map_err(|error| format!("长会议分段生成失败（第 {}/{} 段）：{}。重试会复用已完成片段。", index + 1, total, error))?;
+        if part.minutes.trim().is_empty() { return Err(format!("第 {}/{} 段没有生成内容，请重试", index + 1, total)); }
+        state.analysis_parts.lock().map_err(|_| "纪要缓存被占用，请重试".to_string())?.insert(keys[index], part.clone());
+        Ok(part)
+    })?;
+    for part in parts {
         if !part.minutes.trim().is_empty() { minutes_parts.push(part.minutes); }
         for line in part.decisions.split('\n') {
             let line = line.trim();
@@ -3227,8 +3295,9 @@ fn generate_chunked_analysis(settings: &AiSettings, api_key: &str, meeting: &Mee
     if minutes_parts.is_empty() { return Err("智能纪要没有生成内容".to_string()); }
     let merge_prompt = build_merge_user_prompt(meeting, template, &minutes_parts);
     let merged = request_analysis_with(settings, api_key, ANALYSIS_MERGE_SYSTEM_PROMPT, &merge_prompt)
-        .map_err(|error| format!("长会议纪要合并失败：{error}"))?;
+        .map_err(|error| format!("长会议纪要合并失败：{error}。30 分钟内重试会复用已完成片段。"))?;
     if merged.minutes.trim().is_empty() { return Err("智能纪要没有生成内容".to_string()); }
+    if let Ok(mut cache) = state.analysis_parts.lock() { cache.remove(&keys); }
     Ok(AnalysisResponse {
         theme: merged.theme,
         minutes: merged.minutes,
@@ -3250,25 +3319,30 @@ const ANALYSIS_MERGE_SYSTEM_PROMPT: &str = "你是严谨的中文会议纪要助
 ///
 /// 背景（2026-09-23 实测）：用户的 OpenAI 兼容网关在连续发起长请求时，会间歇性返回
 /// 401「无效的令牌」——同一把密钥、同一进程内，前一秒成功、后一秒被拒，且几十秒后恢复正常。
-/// 长会议纪要要把同一场会议切成 3~7 段连续请求，只要有一段被拒，整场纪要就会失败，
-/// 因此这里对网络错误与 401/403/408/429/5xx 统一重试；模型名或地址写错（400/404）则不重试。
+/// 保留网关瞬时拒绝的重试，但每个请求最多三次、总预算六分钟。
+/// 已经等到超时的请求不自动重复整轮等待；模型名或地址写错也不重试。
 fn chat_completion(settings: &AiSettings, api_key: &str, body: &serde_json::Value, service_label: &str) -> Result<serde_json::Value, String> {
     let endpoint = format!("{}/chat/completions", settings.base_url.trim_end_matches('/'));
-    let client = reqwest::blocking::Client::builder()
+    static CLIENT: std::sync::OnceLock<Result<reqwest::blocking::Client, String>> = std::sync::OnceLock::new();
+    let client = CLIENT.get_or_init(|| reqwest::blocking::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(20))
-        .timeout(std::time::Duration::from_secs(600))
-        .build()
-        .map_err(app_error)?;
+        .build().map_err(app_error)).as_ref().map_err(Clone::clone)?;
     let mut last_error = String::new();
-    // 试探到网关的 401 是成片出现的，退避窗口给足（累计约 40 秒）比多试几次更有效
-    for attempt in 0..5u32 {
+    let started = std::time::Instant::now();
+    let budget = std::time::Duration::from_secs(360);
+    for attempt in 0..3u32 {
         if attempt > 0 {
-            std::thread::sleep(std::time::Duration::from_secs(u64::from(attempt) * 4));
+            let delay = std::time::Duration::from_secs(u64::from(attempt) * 8);
+            if started.elapsed() + delay >= budget { break; }
+            std::thread::sleep(delay);
         }
-        match client.post(endpoint.as_str()).bearer_auth(api_key).json(body).send() {
+        let remaining = budget.saturating_sub(started.elapsed());
+        if remaining.is_zero() { break; }
+        match client.post(endpoint.as_str()).bearer_auth(api_key).json(body)
+            .timeout(remaining.min(std::time::Duration::from_secs(240))).send() {
             Ok(response) => {
                 let status = response.status();
-                let text = response.text().unwrap_or_default();
+                let text = response.text().map_err(|error| format!("{service_label}读取响应失败，请重试：{error}"))?;
                 if status.is_success() {
                     return serde_json::from_str::<serde_json::Value>(&text)
                         .map_err(|error| format!("{service_label}返回的内容不是合法 JSON：{error}"));
@@ -3281,6 +3355,9 @@ fn chat_completion(settings: &AiSettings, api_key: &str, body: &serde_json::Valu
                 }
             }
             Err(error) => {
+                if error.is_timeout() {
+                    return Err(format!("{service_label}响应超时，请稍后重试。"));
+                }
                 last_error = app_error(error);
             }
         }
@@ -3318,7 +3395,7 @@ fn generate_analysis(state: &AppState, meeting_id: &str, template: &str) -> Resu
     if meeting.transcript.trim().is_empty() { return Err("请先完成语音转写，或在原始记录中粘贴会议内容".to_string()); }
     if meeting_transcript_text(&meeting).chars().count() > ANALYSIS_SINGLE_CHARS {
         // 长会议：按说话人时间线分段生成再合并，避免单次请求撑爆模型上下文
-        return generate_chunked_analysis(&settings, &api_key, &meeting, template);
+        return generate_chunked_analysis(state, &settings, &api_key, &meeting, template);
     }
     let prompt = build_analysis_user_prompt(&meeting, template);
     let analysis = request_analysis(&settings, &api_key, &prompt)?;
