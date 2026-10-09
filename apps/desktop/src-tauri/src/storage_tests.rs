@@ -33,6 +33,8 @@ fn sidecar_conflict_never_overwrites_a_different_recording() {
     recorder::organize_dual_track_sidecars(&directory.0, "meeting").unwrap();
     assert_eq!(fs::read(directory.0.join("meeting-mic.wav")).unwrap(), b"old microphone");
     assert_eq!(fs::read(directory.0.join("tracks/meeting-mic.wav")).unwrap(), b"another source");
+    let (mic, _) = recorder::existing_dual_track_paths(&directory.0, "meeting");
+    assert_eq!(fs::read(mic).unwrap(), b"old microphone");
 }
 
 fn test_wav(path: &Path, sample_rate: u32, channels: u16, sample: i16) {

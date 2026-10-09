@@ -42,7 +42,10 @@ pub fn dual_track_paths(recordings_dir: &Path, meeting_id: &str) -> (PathBuf, Pa
 pub fn existing_dual_track_paths(recordings_dir: &Path, meeting_id: &str) -> (PathBuf, PathBuf) {
     let (mic, system) = dual_track_paths(recordings_dir, meeting_id);
     let resolve = |path: PathBuf| {
-        if path.is_file() { path } else { recordings_dir.join(path.file_name().unwrap()) }
+        let legacy = recordings_dir.join(path.file_name().unwrap());
+        // A name conflict must keep using the original source, just as before
+        // the upgrade. Never silently switch to the conflicting destination.
+        if legacy.is_file() { legacy } else { path }
     };
     (resolve(mic), resolve(system))
 }
