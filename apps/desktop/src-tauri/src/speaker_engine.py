@@ -119,29 +119,31 @@ def extract_embeddings(model, chunk_stream):
     return merged, owners
 
 
-def cluster_embeddings(embeddings):
+def cluster_embeddings(embeddings, speaker_count=None):
     import numpy as np
     from funasr.models.campplus.cluster_backend import ClusterBackend
 
-    if embeddings.shape[0] == 1:
-        return np.zeros(1, dtype="int")
+    if speaker_count is not None and not 1 <= speaker_count <= min(15, embeddings.shape[0]):
+        raise RuntimeError("发言人数需为 1–15，且不能超过有效声音片段数量")
+    if embeddings.shape[0] == 1 or speaker_count == 1:
+        return np.zeros(embeddings.shape[0], dtype="int")
     # FunASR deliberately collapses fewer than 20 windows to one speaker. Meetings
     # often contain fewer windows, so use cosine hierarchical clustering there.
     if embeddings.shape[0] < 20:
         from sklearn.cluster import AgglomerativeClustering
 
         values = embeddings.numpy()
+        options = ({"n_clusters": speaker_count} if speaker_count is not None else
+                   {"n_clusters": None, "distance_threshold": 0.32})
         try:
             cluster = AgglomerativeClustering(
-                n_clusters=None,
-                distance_threshold=0.32,
+                **options,
                 metric="cosine",
                 linkage="average",
             )
         except TypeError:
             cluster = AgglomerativeClustering(
-                n_clusters=None,
-                distance_threshold=0.32,
+                **options,
                 affinity="cosine",
                 linkage="average",
             )
@@ -155,14 +157,15 @@ def cluster_embeddings(embeddings):
     # 实测）。2000 个采样既能控制耗时（eigh 2000x2000 约数秒），又验证可
     # 分出与全量谱聚类 96%+ 一致的多说话人。
     sample_limit = 2000
+    params = {"oracle_num": speaker_count} if speaker_count is not None else {}
     if embeddings.shape[0] <= sample_limit:
-        return ClusterBackend()(embeddings).astype("int")
+        return ClusterBackend()(embeddings, **params).astype("int")
     import torch
     import torch.nn.functional as functional
 
     indexes = torch.linspace(0, embeddings.shape[0] - 1, sample_limit).long()
     sample = embeddings[indexes]
-    sample_labels = ClusterBackend()(sample).astype("int")
+    sample_labels = ClusterBackend()(sample, **params).astype("int")
     centers = torch.stack(
         [sample[torch.from_numpy(sample_labels == label)].mean(0) for label in sorted(set(sample_labels))]
     )
@@ -179,6 +182,77 @@ def assign_speakers(sentences, owners, labels):
         if sentence_labels:
             previous = Counter(sentence_labels).most_common(1)[0][0]
         sentences[index]["spk"] = previous
+
+
+def rediarize_audio(audio_path, segments, get_speaker_model, speaker_count=None, embedding_cache=None):
+    """Use saved timestamps to change roles without running speech recognition."""
+    import numpy as np
+    import soundfile as sf
+    import torch
+    from zipfile import BadZipFile
+
+    if not segments:
+        raise RuntimeError("请先生成带时间的原文，再重新区分角色")
+    sentences = [{"start": int(s["startMs"]), "end": int(s["endMs"])} for s in segments]
+    if any(s["start"] < 0 or s["end"] <= s["start"] for s in sentences):
+        raise RuntimeError("原文时间标记不完整，请先重新生成完整原文")
+    starts = np.asarray([s["start"] for s in sentences])
+    ends = np.asarray([s["end"] for s in sentences])
+    embeddings, owners = None, []
+    if embedding_cache:
+        try:
+            if time.time() - os.path.getmtime(embedding_cache) >= 1800:
+                raise ValueError("expired cache")
+            with np.load(embedding_cache, allow_pickle=False) as cached:
+                if np.array_equal(cached["starts"], starts) and np.array_equal(cached["ends"], ends):
+                    values, cached_owners = cached["embeddings"], cached["owners"]
+                    if values.ndim == 2 and values.shape[1] > 0 and cached_owners.ndim == 1 and np.issubdtype(cached_owners.dtype, np.integer) and len(values) == len(cached_owners) and len(values) > 0 and np.isfinite(values).all() and cached_owners.min() >= 0 and cached_owners.max() < len(sentences):
+                        embeddings, owners = torch.from_numpy(values), cached_owners.tolist()
+        except (OSError, ValueError, KeyError, EOFError, BadZipFile):
+            pass
+    if embeddings is None:
+        with sf.SoundFile(audio_path) as audio_file:
+            if audio_file.samplerate != 16000 or audio_file.channels != 1:
+                raise RuntimeError("说话人分析需要 16kHz 单声道录音")
+            if max(ends) > audio_file.frames / 16 + 1000:
+                raise RuntimeError("原文时间超出录音长度，无法安全重新区分角色")
+            embeddings, owners = extract_embeddings(get_speaker_model(), speaker_chunks(sentences, audio_file))
+        if embeddings is None:
+            raise RuntimeError("录音没有返回可用声纹，原文和现有角色已保留")
+        if embedding_cache:
+            # The cache contains features and timestamps, never transcript text.
+            import tempfile
+            cache_dir = os.path.dirname(embedding_cache)
+            temp_path = None
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+                entries = sorted((os.path.join(cache_dir, name) for name in os.listdir(cache_dir) if name.endswith(".npz")), key=os.path.getmtime)
+                excess = max(0, len(entries) - 7)
+                for index, old in enumerate(entries):
+                    if index < excess or time.time() - os.path.getmtime(old) >= 1800:
+                        try:
+                            os.remove(old)
+                        except OSError:
+                            pass
+                with tempfile.NamedTemporaryFile(dir=cache_dir, suffix=".tmp", delete=False) as temp:
+                    temp_path = temp.name
+                    np.savez(temp, embeddings=embeddings.numpy(), owners=np.asarray(owners), starts=starts, ends=ends)
+                os.replace(temp_path, embedding_cache)
+            except OSError:
+                pass  # Caching is optional; disk/permission failures must not discard roles.
+            finally:
+                if temp_path and os.path.isfile(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except OSError:
+                        pass
+    labels = cluster_embeddings(embeddings, speaker_count)
+    assign_speakers(sentences, owners, labels)
+    mapping = {}
+    ids = [mapping.setdefault(s["spk"], len(mapping)) for s in sentences]
+    if speaker_count is not None and len(mapping) != speaker_count:
+        raise RuntimeError(f"只能稳定分出 {len(mapping)} 个角色，未达到指定的 {speaker_count} 人；请调整人数或核对录音")
+    return {"speakerIds": ids}
 
 
 def recognize_audio(audio_path, hotwords, recognizer, get_speaker_model, skip_speakers=False):
@@ -242,7 +316,12 @@ def main():
     parser.add_argument("--model-cache", required=True)
     parser.add_argument("--hotwords", default="")
     parser.add_argument("--skip-speakers", action="store_true")
+    parser.add_argument("--segments", help="Saved timestamps for speaker-only correction")
+    parser.add_argument("--speaker-count", type=int)
+    parser.add_argument("--embedding-cache")
     args = parser.parse_args()
+    if not args.segments and (args.speaker_count is not None or args.embedding_cache):
+        parser.error("--speaker-count 和 --embedding-cache 仅用于 --segments 角色修正")
 
     os.environ["MODELSCOPE_CACHE"] = args.model_cache
     os.environ["HF_HOME"] = args.model_cache
@@ -250,18 +329,6 @@ def main():
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     from funasr import AutoModel
 
-    asr_model = find_local_model(args.model_cache, "SeacoParaformer")
-    vad_model = find_local_model(args.model_cache, "FsmnVADStreaming")
-    punc_model = find_local_model(args.model_cache, "CTTransformer")
-    if not all((asr_model, vad_model, punc_model)):
-        raise RuntimeError("高精度会议模型不完整，请在设置中点击“检查并修复实时引擎”")
-    # Load the large recognizer once for both tracks. Each track still uses its
-    # own fresh decoding cache, so speech from one source cannot leak into another.
-    recognizer = AutoModel(
-        model=asr_model, vad_model=vad_model, punc_model=punc_model,
-        vad_kwargs={"max_single_segment_time": 30000}, device="cpu",
-        disable_update=True, disable_pbar=True, log_level="ERROR",
-    )
     speaker_model = None
 
     def get_speaker_model():
@@ -275,6 +342,27 @@ def main():
                 disable_pbar=True, log_level="ERROR",
             )
         return speaker_model
+
+    if args.segments:
+        if not args.audio or args.jobs:
+            raise RuntimeError("重新区分角色需提供一份录音及原文时间标记")
+        with open(args.segments, encoding="utf-8") as source:
+            segments = json.load(source)
+        result = rediarize_audio(args.audio, segments, get_speaker_model, args.speaker_count, args.embedding_cache)
+        with open(args.output, "w", encoding="utf-8") as output:
+            json.dump(result, output, ensure_ascii=False)
+        return
+
+    asr_model = find_local_model(args.model_cache, "SeacoParaformer")
+    vad_model = find_local_model(args.model_cache, "FsmnVADStreaming")
+    punc_model = find_local_model(args.model_cache, "CTTransformer")
+    if not all((asr_model, vad_model, punc_model)):
+        raise RuntimeError("高精度会议模型不完整，请在设置中点击“检查并修复实时引擎”")
+    recognizer = AutoModel(
+        model=asr_model, vad_model=vad_model, punc_model=punc_model,
+        vad_kwargs={"max_single_segment_time": 30000}, device="cpu",
+        disable_update=True, disable_pbar=True, log_level="ERROR",
+    )
 
     if args.jobs:
         with open(args.jobs, encoding="utf-8") as source:

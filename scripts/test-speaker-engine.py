@@ -27,6 +27,34 @@ class AudioFile:
 
 
 class SpeakerEngineTests(unittest.TestCase):
+    def test_role_correction_only_loads_voice_model_and_keeps_number_hint(self):
+        loads = []
+        class Model:
+            def __init__(self, **kwargs):
+                loads.append(kwargs["model"])
+            def generate(self, **kwargs):
+                raise AssertionError("Speech recognition must not run during role correction")
+        with tempfile.TemporaryDirectory() as directory:
+            source, output = Path(directory) / "segments.json", Path(directory) / "roles.json"
+            timestamps = [{"startMs": 0, "endMs": 1000}, {"startMs": 1100, "endMs": 2000}]
+            source.write_text(json.dumps(timestamps), encoding="utf-8")
+            cache = str(Path(directory) / "voiceprints.npz")
+            def correct(audio, segments, get_model, count, embedding_cache):
+                self.assertEqual((audio, segments, count, embedding_cache), ("room.wav", timestamps, 3, cache))
+                get_model()
+                get_model()
+                return {"speakerIds": [0, 1]}
+            argv = ["engine", "--audio", "room.wav", "--segments", str(source), "--output", str(output), "--model-cache", directory, "--speaker-count", "3", "--embedding-cache", cache]
+            with patch.dict(sys.modules, {"funasr": types.SimpleNamespace(AutoModel=Model)}), patch.object(sys, "argv", argv), patch.object(engine, "find_local_model", side_effect=lambda _, model: model), patch.object(engine, "rediarize_audio", side_effect=correct):
+                engine.main()
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8")), {"speakerIds": [0, 1]})
+            self.assertEqual(loads, ["CAMPPlus"])
+
+    def test_number_hint_requires_role_correction_mode(self):
+        argv = ["engine", "--audio", "room.wav", "--output", "unused", "--model-cache", "unused", "--speaker-count", "3"]
+        with patch.object(sys, "argv", argv), self.assertRaises(SystemExit):
+            engine.main()
+
     def run_jobs(self, jobs):
         loads, requests, voiceprint_calls = [], [], []
 

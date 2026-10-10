@@ -66,6 +66,7 @@ export function MeetingWorkspace({
   autoSaveHint,
   onTranscribe,
   onTranscribeWithSpeakers,
+  onRediarize,
   onAnalyze,
   onRegenerateSection,
   onRename,
@@ -106,6 +107,7 @@ export function MeetingWorkspace({
   autoSaveHint: string;
   onTranscribe: () => void;
   onTranscribeWithSpeakers: () => void;
+  onRediarize: (speakerCount: number | null) => Promise<boolean>;
   onAnalyze: () => void;
   onRegenerateSection: (section: "minutes" | "decisions" | "tasks") => void;
   onRename: () => void;
@@ -123,6 +125,9 @@ export function MeetingWorkspace({
     initialWorkspaceTab(meeting),
   );
   const [notesOpen, setNotesOpen] = useState(false);
+  const [rolesOpen, setRolesOpen] = useState(false);
+  const [expectedSpeakers, setExpectedSpeakers] = useState("auto");
+  const [correctingRoles, setCorrectingRoles] = useState(false);
   // 会前背景条：默认收起；有内容时收起并显示首行预览，空时展开引导填写
   const [contextOpen, setContextOpen] = useState<boolean | null>(null);
   const contextExpanded = contextOpen ?? !meeting?.context?.trim();
@@ -132,6 +137,8 @@ export function MeetingWorkspace({
     setWorkspaceTab(initialWorkspaceTab(meeting));
     setContextOpen(null);
     setNotesOpen(false);
+    setRolesOpen(false);
+    setExpectedSpeakers("auto");
   }, [meeting?.id]);
 
   // 解析说话人段数用于 Tab 计数徽章
@@ -233,6 +240,12 @@ export function MeetingWorkspace({
           </div>
         )}
       </div>
+      {speakerSegments.length > 0 && meeting.audioPath && asrEngine.provider === "local" && (
+        <div className={`speaker-correction-strip ${speakerCount === 1 ? "needs-review" : ""}`}>
+          <span>{speakerCount === 1 ? "目前只识别到一个声音角色，实际多人时可重新区分。" : "声音角色不准确时，可以保留正文重新区分。"}</span>
+          <button className="ghost-button" disabled={busy || recording || recordingFinalizing || !speakerStatus.installed} onClick={() => setRolesOpen(true)}><RefreshCw size={14} />重新区分角色</button>
+        </div>
+      )}
       {meeting.transcript.trim() && (
         <div className="transcript-quality-strip">
           <div className={speakerSegments.length > 0 ? "ready" : "attention"}>
@@ -639,6 +652,25 @@ export function MeetingWorkspace({
         )}
       </main>
       {notesDrawer}
+      {meeting && rolesOpen && (
+        <Dialog className="speaker-correction-modal" ariaLabel="重新区分角色" onClose={correctingRoles ? undefined : () => setRolesOpen(false)} closeOnEsc={!correctingRoles}>
+          <div className="modal-head"><h3>重新区分角色</h3><IconButton icon={X} label="关闭角色修正" disabled={correctingRoles} onClick={() => setRolesOpen(false)} /></div>
+          <p>只重新分析声音角色，保留已校对的文字和纪要。角色名称需重新核对。</p>
+          <label className="speaker-count-field">实际发言人数
+            <select aria-label="实际发言人数" value={expectedSpeakers} disabled={correctingRoles} onChange={(event) => setExpectedSpeakers(event.target.value)}>
+              <option value="auto">不确定，自动判断</option>
+              {Array.from({ length: 15 }, (_, index) => index + 1).map((count) => <option key={count} value={String(count)}>{count} 人</option>)}
+            </select>
+          </label>
+          <small>自动结果漏分时，选择实际发言人数会更有帮助。</small>
+          <div className="modal-actions"><button className="secondary-button" disabled={correctingRoles} onClick={() => setRolesOpen(false)}>取消</button><button className="primary-button" disabled={busy || correctingRoles} onClick={async () => {
+            if (correctingRoles) return;
+            setCorrectingRoles(true);
+            try { if (await onRediarize(expectedSpeakers === "auto" ? null : Number(expectedSpeakers))) setRolesOpen(false); }
+            finally { setCorrectingRoles(false); }
+          }}>{correctingRoles ? "正在区分…" : "开始区分"}</button></div>
+        </Dialog>
+      )}
     </div>
   );
 }

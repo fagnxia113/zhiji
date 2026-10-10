@@ -40,7 +40,7 @@ const OFFICIAL_PYPI_INDEX: &str = "https://pypi.org/simple";
 const PYTORCH_CPU_INDEX: &str = "https://download.pytorch.org/whl/cpu";
 const TORCH_CPU_VERSION: &str = "torch==2.11.0+cpu";
 const TORCHAUDIO_CPU_VERSION: &str = "torchaudio==2.11.0+cpu";
-const SPEAKER_ENGINE_VERSION: &str = "10";
+const SPEAKER_ENGINE_VERSION: &str = "11";
 const SPEAKER_MODELS_VERSION: &str = "quality-2pass-v1";
 const VC_RUNTIME_DLLS: &[&str] = &[
     "concrt140.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll",
@@ -1832,20 +1832,8 @@ fn run_dual_track_speaker_engine(
     if segments.is_empty() {
         return Err(format!("双轨会议转写没有返回可用结果（{}）", failures.join("；")));
     }
-    // 现场会议聚类只出一个人（独处口述）时，把唯一的说话人保留为“我”，避免“发言人 1”的冰冷标签。
-    if in_room_meeting {
-        let unique_speakers: Vec<i64> = {
-            let mut ids: Vec<i64> = segments.iter().map(|segment| segment.speaker_id).collect();
-            ids.sort();
-            ids.dedup();
-            ids
-        };
-        if unique_speakers.len() == 1 {
-            for segment in &mut segments {
-                segment.speaker = "我".to_string();
-            }
-        }
-    }
+    // One acoustic cluster does not identify the microphone owner. In-room
+    // speakers stay anonymous even when automatic clustering finds only one.
     segments.sort_by_key(|segment| (segment.start_ms, segment.speaker_id));
     let transcript = segments.iter()
         .map(|segment| format!("【{}】{}", segment.speaker, segment.text))
@@ -3005,10 +2993,84 @@ async fn transcribe_meeting_with_speakers(state: State<'_, AppState>, meeting_id
     let result = result??;
     let segments = serde_json::to_string(&result.segments).map_err(app_error)?;
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-    connection.execute("UPDATE meetings SET transcript = ?2, speaker_segments = ?3, status = ?4, updated_at = ?5 WHERE id = ?1", params![meeting_id, result.transcript, segments, "已区分发言人", now()]).map_err(app_error)?;
+    let speaker_count = result.segments.iter().map(|s| s.speaker_id).collect::<std::collections::HashSet<_>>().len();
+    connection.execute("UPDATE meetings SET transcript = ?2, speaker_segments = ?3, status = ?4, updated_at = ?5 WHERE id = ?1", params![meeting_id, result.transcript, segments, if speaker_count == 1 { "角色待核对" } else { "已区分发言人" }, now()]).map_err(app_error)?;
     let updated = meeting_by_id(&connection, &meeting.id)?;
     drop(connection);
     Ok(updated)
+}
+
+fn apply_speaker_roles(connection: &Connection, snapshot: &Meeting, ids: &[i64], expected: Option<usize>) -> Result<Meeting, String> {
+    let mut segments: Vec<SpeakerSegment> = serde_json::from_str(&snapshot.speaker_segments).map_err(app_error)?;
+    if segments.is_empty() || ids.len() != segments.len() || ids.iter().any(|id| !(0..15).contains(id)) {
+        return Err("角色结果与原文片段不一致，已保留原记录".to_string());
+    }
+    let count = ids.iter().collect::<std::collections::HashSet<_>>().len();
+    if expected.is_some_and(|expected| count != expected) { return Err("角色数量未达到指定人数，已保留原记录".to_string()); }
+    for (segment, id) in segments.iter_mut().zip(ids) {
+        segment.speaker_id = *id;
+        segment.speaker = format!("发言人 {}", id + 1);
+    }
+    let transcript = segments.iter().map(|s| format!("【{}】{}", s.speaker, s.text)).collect::<Vec<_>>().join("\n");
+    let status = if !snapshot.minutes.trim().is_empty() || snapshot.status == "已人工校对" {
+        snapshot.status.as_str()
+    } else if count == 1 { "角色待核对" } else { "已区分发言人" };
+    let changed = connection.execute(
+        "UPDATE meetings SET transcript=?2, speaker_segments=?3, speaker_names='{}', status=?4, updated_at=?5 WHERE id=?1 AND updated_at=?6 AND speaker_segments=?7 AND audio_path IS ?8 AND transcript=?9",
+        params![snapshot.id, transcript, serde_json::to_string(&segments).map_err(app_error)?, status, now(), snapshot.updated_at, snapshot.speaker_segments, snapshot.audio_path, snapshot.transcript],
+    ).map_err(app_error)?;
+    if changed != 1 { return Err("原文或录音已在处理期间更新，请重新区分角色".to_string()); }
+    meeting_by_id(connection, &snapshot.id)
+}
+
+#[tauri::command]
+async fn rediarize_meeting(state: State<'_, AppState>, meeting_id: String, speaker_count: Option<usize>) -> Result<Meeting, String> {
+    ensure_meeting_recording_idle(&state, &meeting_id)?;
+    if speaker_count.is_some_and(|count| !(1..=15).contains(&count)) { return Err("发言人数需为 1–15 人".to_string()); }
+    let snapshot = {
+        let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+        meeting_by_id(&connection, &meeting_id)?
+    };
+    let segments: Vec<SpeakerSegment> = serde_json::from_str(&snapshot.speaker_segments).map_err(app_error)?;
+    if segments.is_empty() { return Err("请先生成带时间的完整原文，再重新区分角色".to_string()); }
+    let audio = snapshot.audio_path.as_deref().ok_or_else(|| "请先保存或导入录音".to_string())?;
+    let stem = Path::new(audio).file_stem().and_then(|s| s.to_str()).unwrap_or(&meeting_id);
+    let (mic, system) = recorder::existing_dual_track_paths(&state.recordings_dir, stem);
+    let source = if mic.is_file() && system.is_file() && wav_track_is_silent(&system) { mic } else { PathBuf::from(audio) };
+    let metadata = fs::metadata(&source).map_err(app_error)?;
+    use std::hash::{Hash, Hasher};
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    (SPEAKER_ENGINE_VERSION, &source, metadata.len(), metadata.modified().ok()).hash(&mut hash);
+    let timestamps: Vec<_> = segments.iter().map(|s| { (s.start_ms, s.end_ms).hash(&mut hash); json!({"startMs":s.start_ms,"endMs":s.end_ms}) }).collect();
+    let cache_key = hash.finish();
+    state.cancel_flag.store(false, Ordering::SeqCst);
+    live_session::shutdown_warm_engine();
+    let engine_dir = state.speaker_engine_dir.clone();
+    let models_dir = state.speaker_models_dir.clone();
+    let runtime_dir = state.runtime_dir.clone();
+    let ffmpeg_dir = state.ffmpeg_dir.clone();
+    let vcrt_dir = state.vcrt_dir.clone();
+    let cancel_flag = state.cancel_flag.clone();
+    let cancel_child = state.cancel_child.clone();
+    let ids = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<i64>, String> {
+        if !speaker_engine_installed(&engine_dir) { return Err("请先安装或修复本地会议引擎".to_string()); }
+        prepare_speaker_runtime(&vcrt_dir, &engine_dir)?;
+        let wav = to_wav(&runtime_dir, &ffmpeg_dir, &source.to_string_lossy())?;
+        let input = TemporaryFile { path: engine_dir.join(format!("speaker-timestamps-{}.json", Uuid::new_v4())), remove: true };
+        let output = TemporaryFile { path: engine_dir.join(format!("speaker-roles-{}.json", Uuid::new_v4())), remove: true };
+        fs::write(&input.path, serde_json::to_vec(&timestamps).map_err(app_error)?).map_err(app_error)?;
+        let mut args = vec![speaker_script(&engine_dir).to_string_lossy().into_owned(), "--audio".into(), wav.path.to_string_lossy().into_owned(), "--segments".into(), input.path.to_string_lossy().into_owned(), "--output".into(), output.path.to_string_lossy().into_owned(), "--model-cache".into(), models_dir.to_string_lossy().into_owned(), "--embedding-cache".into(), engine_dir.join("voiceprints").join(format!("{cache_key:016x}.npz")).to_string_lossy().into_owned()];
+        if let Some(count) = speaker_count { args.extend(["--speaker-count".into(), count.to_string()]); }
+        let borrowed: Vec<_> = args.iter().map(String::as_str).collect();
+        run_cancelable_python(&speaker_python(&engine_dir), &borrowed, "重新区分角色", &cancel_flag, &cancel_child)?;
+        #[derive(Deserialize)]
+        #[serde(rename_all="camelCase")]
+        struct Roles { speaker_ids: Vec<i64> }
+        serde_json::from_str::<Roles>(&fs::read_to_string(&output.path).map_err(app_error)?).map(|r| r.speaker_ids).map_err(app_error)
+    }).await.map_err(|e| format!("角色修正任务中断：{e}"))??;
+    if state.cancel_flag.load(Ordering::SeqCst) { return Err("已取消角色修正".to_string()); }
+    let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+    apply_speaker_roles(&connection, &snapshot, &ids, speaker_count)
 }
 
 /// 取消当前正在进行的本地转写：置取消标志并杀掉本地语音引擎子进程
@@ -3885,7 +3947,7 @@ pub fn run() {
             check_recording_readiness, begin_recording, abort_recording, recover_interrupted_recordings,
             append_recording_chunk, append_live_audio, stop_recording_capture, finalize_recording, get_recording_path,
             import_meeting_audio, transcribe_meeting,
-            transcribe_meeting_with_speakers, cancel_processing,
+            transcribe_meeting_with_speakers, rediarize_meeting, cancel_processing,
             preview_meeting_analysis, apply_meeting_analysis, analyze_meeting, regenerate_meeting_section,
             rename_meeting, delete_meeting, rename_speaker,
             list_qa_messages, ask_meeting_question, clear_qa_history, generate_weekly_report,

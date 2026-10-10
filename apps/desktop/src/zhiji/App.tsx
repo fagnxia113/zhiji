@@ -36,6 +36,7 @@ type InterruptedProcessingJob = {
 };
 
 function interruptedJobCopy(stage: Exclude<Processing, null>) {
+  if (stage === "speakerCorrecting") return { title: "上次角色修正没有完成", detail: "原文和原有角色仍然保留，可以回到原文校对后重新区分。" };
   if (["transcribing", "speakerTranscribing", "autoTranscribing"].includes(stage)) {
     return {
       title: "上次转写没有完成",
@@ -1351,7 +1352,8 @@ export function App() {
                   ...status,
                   modelsReady: true,
                 }));
-                notify("录音已保存，并自动完成转写与说话人区分。");
+                const roles = new Set(JSON.parse(meeting.speakerSegments).map((segment: { speakerId: number }) => segment.speakerId)).size;
+                notify(roles === 1 ? "录音和原文已保存，但只识别到一个声音角色。实际多人时，可在原文校对中重新区分角色。" : "录音已保存，并自动完成转写与说话人区分。");
               } else {
                 const meeting = await invoke<Meeting>("transcribe_meeting", {
                   meetingId,
@@ -1673,13 +1675,33 @@ export function App() {
       if (selectedMeetingRef.current?.id === meetingId) setSelectedMeeting(meeting);
       setSpeakerStatus((status) => ({ ...status, modelsReady: true }));
       await reload();
-      notify("已完成本地转写与说话人区分，可继续生成智能纪要。");
+      const count = new Set(JSON.parse(meeting.speakerSegments).map((segment: { speakerId: number }) => segment.speakerId)).size;
+      notify(count === 1 ? "原文已生成，但只识别到一个声音角色。实际多人时，可在原文校对中重新区分角色。" : "已完成本地转写与说话人区分，可继续生成智能纪要。");
     } catch (error) {
       const msg = String(error);
       notify(msg.includes("已取消") ? "已取消转写" : `说话人分离失败：${msg}`);
     } finally {
       finishProcessing();
     }
+  };
+
+  const rediarizeMeeting = async (speakerCount: number | null): Promise<boolean> => {
+    if (!selectedMeeting || processing) return false;
+    const meetingId = selectedMeeting.id;
+    try {
+      beginProcessing("speakerCorrecting", meetingId);
+      await persistMeeting(selectedMeeting);
+      const meeting = await invoke<Meeting>("rediarize_meeting", { meetingId, speakerCount });
+      if (selectedMeetingRef.current?.id === meetingId) setSelectedMeeting(meeting);
+      await reload();
+      const count = new Set(JSON.parse(meeting.speakerSegments).map((segment: { speakerId: number }) => segment.speakerId)).size;
+      notify(count === 1 ? "仍只识别到一个声音角色，可指定实际发言人数再次区分。" : `已重新区分为 ${count} 个声音角色，校对文字与纪要已保留。`);
+      return true;
+    } catch (error) {
+      const detail = String(error);
+      notify(detail.includes("已取消") ? "已取消角色修正，原记录仍然保留。" : `角色修正失败：${detail}`);
+      return false;
+    } finally { finishProcessing(); }
   };
 
   const saveAiSettings = async () => {
@@ -1946,6 +1968,7 @@ export function App() {
             autoSaveHint={autoSaveHint}
             onTranscribe={() => void transcribeMeeting()}
             onTranscribeWithSpeakers={() => void transcribeWithSpeakers()}
+            onRediarize={rediarizeMeeting}
             onAnalyze={openGeneration}
             onRegenerateSection={(section) => void regenerateMeetingSection(section)}
             onRename={() => void renameMeeting()}

@@ -123,6 +123,19 @@ export function installFixture({ failStartup = false, failSettings = false, empt
         return null;
       }
       if (command === "save_meeting") { const i = workspace.meetings.findIndex(m => m.id === args.meeting.id); if (i >= 0) workspace.meetings[i] = args.meeting; return null; }
+      if (command === "rediarize_meeting") {
+        const f = window.__fixture;
+        (f.roleCalls ??= []).push(structuredClone(args));
+        if (f.pauseRoles) await new Promise((resolve, reject) => { f.cancelRoles = () => reject(Error("已取消角色修正")); });
+        if (f.failRoles) throw Error("角色数量未达到指定人数，已保留原记录");
+        const m = workspace.meetings.find(m => m.id === args.meetingId);
+        const segments = JSON.parse(m.speakerSegments).map((s, i) => ({ ...s, speakerId: i % (args.speakerCount || 1), speaker: `发言人 ${i % (args.speakerCount || 1) + 1}` }));
+        m.speakerSegments = JSON.stringify(segments);
+        m.speakerNames = "{}";
+        m.transcript = segments.map(s => `【${s.speaker}】${s.text}`).join("\n");
+        return structuredClone(m);
+      }
+      if (command === "cancel_processing") { window.__fixture.cancelRoles?.(); return null; }
       if (command === "create_meeting") { const m = { ...meeting(crypto.randomUUID(), "未命名会议", 0, false), transcript: "", durationSeconds: 0, status: "草稿" }; workspace.meetings.unshift(m); return m; }
       if (command === "delete_task") { workspace.tasks = workspace.tasks.filter(t => t.id !== args.taskId); return null; }
       if (command === "list_qa_messages") return [];

@@ -1,6 +1,58 @@
 use super::*;
 
 #[test]
+fn correcting_roles_preserves_proofread_text_timestamps_and_work_outputs() {
+    let directory = TestDirectory::new();
+    let db = sample_database(&directory.0.join("roles.sqlite3"));
+    let segments = json!([
+        {"speaker":"我","speakerId":1,"startMs":0,"endMs":1000,"text":"已校对的第一段"},
+        {"speaker":"我","speakerId":1,"startMs":1200,"endMs":2200,"text":"已校对的第二段"},
+        {"speaker":"我","speakerId":1,"startMs":2500,"endMs":3500,"text":"保留人工修改！"}
+    ]);
+    db.execute("UPDATE meetings SET speaker_segments=?1,speaker_names=?2,notes='个人笔记' WHERE id='meeting'", params![segments.to_string(), json!({"1":"旧角色"}).to_string()]).unwrap();
+    let before = meeting_by_id(&db, "meeting").unwrap();
+    let tasks_before = serde_json::to_value(tasks(&db).unwrap()).unwrap();
+    let after = apply_speaker_roles(&db, &before, &[0, 1, 2], Some(3)).unwrap();
+    let updated: Vec<SpeakerSegment> = serde_json::from_str(&after.speaker_segments).unwrap();
+    let original: Vec<SpeakerSegment> = serde_json::from_str(&before.speaker_segments).unwrap();
+    for (before, after) in original.iter().zip(updated.iter()) {
+        assert_eq!((&before.text, before.start_ms, before.end_ms), (&after.text, after.start_ms, after.end_ms));
+    }
+    assert_eq!(after.minutes, before.minutes);
+    assert_eq!(after.decisions, before.decisions);
+    assert_eq!(after.notes, before.notes);
+    assert_eq!(after.speaker_names, "{}");
+    assert_eq!(tasks_before, serde_json::to_value(tasks(&db).unwrap()).unwrap());
+    assert_eq!(updated.iter().map(|s| s.speaker_id).collect::<Vec<_>>(), vec![0, 1, 2]);
+}
+
+#[test]
+fn failed_or_stale_role_correction_does_not_overwrite_a_record() {
+    let directory = TestDirectory::new();
+    let db = sample_database(&directory.0.join("stale-roles.sqlite3"));
+    let segments = json!([{"speaker":"发言人 1","speakerId":0,"startMs":0,"endMs":1000,"text":"已校对"}]);
+    db.execute("UPDATE meetings SET speaker_segments=?1 WHERE id='meeting'", params![segments.to_string()]).unwrap();
+    let before = meeting_by_id(&db, "meeting").unwrap();
+    assert!(apply_speaker_roles(&db, &before, &[], None).is_err());
+    assert!(apply_speaker_roles(&db, &before, &[0], Some(3)).is_err());
+    assert_eq!(meeting_by_id(&db, "meeting").unwrap().speaker_segments, before.speaker_segments);
+    db.execute("UPDATE meetings SET updated_at='newer',transcript='另一处的新修改' WHERE id='meeting'", []).unwrap();
+    assert!(apply_speaker_roles(&db, &before, &[0], None).is_err());
+    assert_eq!(meeting_by_id(&db, "meeting").unwrap().transcript, "另一处的新修改");
+}
+
+#[test]
+fn microphone_source_does_not_identify_people_without_explicit_online_owner() {
+    let transcript = || SpeakerTranscript { transcript: String::new(), segments: vec![SpeakerSegment {
+        speaker: "发言人 1".to_string(), speaker_id: 0, start_ms: 0, end_ms: 1000, text: "现场讲话".to_string(),
+    }] };
+    let unknown = remap_source_segments(transcript(), None);
+    assert_eq!(unknown[0].speaker, "会议发言人 1");
+    let known = remap_source_segments(transcript(), Some(("我", 0)));
+    assert_eq!(known[0].speaker, "我");
+}
+
+#[test]
 fn sidecar_organization_preserves_playback_and_handles_partial_moves() {
     let directory = TestDirectory::new();
     let root = directory.0.join("recordings");

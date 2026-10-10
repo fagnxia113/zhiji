@@ -21,6 +21,7 @@ const PROCESSING_DETAILS: Record<Exclude<Processing, null>, ProcessingDescriptio
   installingSpeaker: { title: "正在准备实时会议引擎", detail: "首次准备约需数分钟，具体时间取决于网络。", keepOpen: true },
   checkingLiveEngine: { title: "正在检查实时字幕", detail: "将验证流式识别、句末校正和热词能力。", keepOpen: true },
   speakerTranscribing: { title: "正在区分说话人并转写", detail: "正在使用高精度本地模型处理完整录音。", keepOpen: true },
+  speakerCorrecting: { title: "正在重新区分角色", detail: "正在核对声纹；已校对的文字和纪要会保留。", keepOpen: true },
   importing: { title: "正在导入录音", detail: "正在复制并读取录音信息。", keepOpen: true },
   deleting: { title: "正在删除会议", detail: "正在清理会议数据和受管理的录音文件。", keepOpen: true },
   autoTranscribing: { title: "录音已安全保存", detail: "正在后台生成完整原文并区分说话人。", keepOpen: true },
@@ -42,7 +43,7 @@ export function ProgressModal({ stage, canCancel, onCancel }: ProgressModalProps
   const [canceling, setCanceling] = useState(false);
   const detail = PROCESSING_DETAILS[stage];
   const cancelable = canCancel
-    && (stage === "transcribing" || stage === "speakerTranscribing" || stage === "autoTranscribing");
+    && (stage === "transcribing" || stage === "speakerTranscribing" || stage === "speakerCorrecting" || stage === "autoTranscribing");
 
   useEffect(() => {
     setElapsed(0);
@@ -58,7 +59,7 @@ export function ProgressModal({ stage, canCancel, onCancel }: ProgressModalProps
         <LoaderCircle size={26} className="spin" />
         <div>
           <h3>{canceling ? "正在安全停止" : detail.title}</h3>
-          <p>{canceling ? "正在结束本地转写进程，已保存的录音不会丢失。" : detail.detail}</p>
+          <p>{canceling ? "正在结束本地处理进程，已保存的录音和正文会保留。" : detail.detail}</p>
         </div>
       </div>
       <div className="processing-runtime" aria-live="polite">
@@ -75,7 +76,7 @@ export function ProgressModal({ stage, canCancel, onCancel }: ProgressModalProps
               onCancel();
             }}
           >
-            {canceling ? "正在取消…" : "取消转写"}
+            {canceling ? "正在取消…" : stage === "speakerCorrecting" ? "取消角色修正" : "取消转写"}
           </button>
         </div>
       )}

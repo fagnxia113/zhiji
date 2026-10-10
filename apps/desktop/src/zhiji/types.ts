@@ -29,6 +29,7 @@ export const MeetingStatus = {
   Imported: "已导入录音",
   Transcribed: "已转写",
   Diarized: "已区分发言人",
+  SpeakersNeedReview: "角色待核对",
   Analyzed: "已分析",
   Proofread: "已人工校对",
 } as const;
@@ -44,6 +45,7 @@ export function statusTone(status: string): StatusTone {
       return "success";
     case MeetingStatus.LiveTranscribed:
     case MeetingStatus.Transcribed:
+    case MeetingStatus.SpeakersNeedReview:
     case MeetingStatus.Recorded:
     case MeetingStatus.PendingRecovery:
     case MeetingStatus.Recovered:
@@ -258,6 +260,7 @@ export type Processing =
   | "installingSpeaker"
   | "checkingLiveEngine"
   | "speakerTranscribing"
+  | "speakerCorrecting"
   | "importing"
   | "deleting"
   | "autoTranscribing"
