@@ -835,10 +835,14 @@ pub(super) fn dispatch_db(db: &Connection, action: &str, a: &Value) -> Result<Va
                     .collect::<Vec<_>>()
             };
             let total = es.len() + ts.len() + ms.len();
+            // The context's recent entries/tasks may be capped. Load pending work
+            // separately so completed or recent items cannot crowd it out.
+            let followups = if action == "get_project_context" { Some(dispatch_db(db,"list_followups",a)?) } else { None };
             Ok(
                 json!({"entries":es.into_iter().take(50).collect::<Vec<_>>(),"tasks":ts.into_iter().take(50).collect::<Vec<_>>(),
                 "meetings":ms.into_iter().take(25).map(|m|json!({"id":m.id,"title":m.title,"startedAt":m.started_at,"minutes":clip_chars(&m.minutes,3000),"decisions":clip_chars(&m.decisions,2000),"notes":clip_chars(&m.notes,2000)})).collect::<Vec<_>>(),
                 "total":total,"limits":{"entries":50,"tasks":50,"meetings":25},
+                "followups":followups,
                 "projects":projects(db)?.into_iter().filter(|p|themes::matches(&scope,Some(&p.id))).collect::<Vec<_>>(),
                 "projectHub": if action == "get_project_context" { themes::hub(db, &scope)? } else { json!(null) }}),
             )

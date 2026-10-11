@@ -74,6 +74,18 @@ fn theme_queries_cannot_expand_an_authorized_project() {
 }
 
 #[test]
+fn recent_completed_records_cannot_hide_older_theme_followups() {
+    let dir=TestDirectory::new(); let db=themed_database(&dir.0.join("followups.sqlite3"));
+    for i in 0..60 {
+        workbench::save_entry(&db,&json!({"id":format!("done-{i}"),"content":"已完成的新工作","occurredOn":"2026-10-01","projectId":"p","status":"done"}),false).unwrap();
+    }
+    let ctx=workbench::dispatch_db(&db,"get_project_context",&json!({"themeId":"data"})).unwrap();
+    assert!(!ctx["entries"].as_array().unwrap().iter().any(|e|e["id"]=="ep"));
+    assert!(ctx["followups"]["entries"].as_array().unwrap().iter().any(|e|e["id"]=="ep"));
+    assert!(ctx["followups"]["entries"].as_array().unwrap().iter().all(|e|e["status"]=="waiting"));
+}
+
+#[test]
 fn theme_backup_restores_relationships_and_report_scope_snapshot_and_accepts_old_backups() {
     let dir=TestDirectory::new(); let mut db=themed_database(&dir.0.join("backup.sqlite3"));
     db.execute_batch("INSERT INTO weekly_reports VALUES('report','2026-09-28',NULL,'周报','[]','[]','now','now'); INSERT INTO weekly_report_themes VALUES('report','data','数据中心');").unwrap();
