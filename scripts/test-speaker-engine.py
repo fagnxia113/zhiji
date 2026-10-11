@@ -27,6 +27,30 @@ class AudioFile:
 
 
 class SpeakerEngineTests(unittest.TestCase):
+    def test_prepare_reuses_complete_models_and_never_downloads_streaming_asr(self):
+        classes = {"quality-seaco": "SeacoParaformer", "quality-vad": "FsmnVADStreaming", "quality-punc": "CTTransformer", "quality-speaker": "CAMPPlus"}
+        downloads = []
+        def download(**kwargs):
+            downloads.append(kwargs["model_id"])
+            directory = Path(kwargs["local_dir"])
+            directory.mkdir(exist_ok=True)
+            (directory / "config.yaml").write_text("model: " + classes[directory.name], encoding="utf-8")
+            (directory / "model.pt").write_bytes(b"weights")
+        with tempfile.TemporaryDirectory() as directory, patch.dict(sys.modules, {"modelscope": types.SimpleNamespace(snapshot_download=download)}):
+            engine.prepare_models(directory)
+            self.assertEqual(len(downloads), 4)
+            self.assertFalse(any("online" in model for model in downloads))
+            engine.prepare_models(directory)
+            self.assertEqual(len(downloads), 4, "Existing complete weights must be reused")
+            (Path(directory) / "quality-vad" / "model.pt").unlink()
+            engine.prepare_models(directory)
+            self.assertEqual(len(downloads), 5, "A config without weights needs repair")
+
+    def test_prepare_cli_does_not_require_audio_or_load_recognition_models(self):
+        with patch.object(sys, "argv", ["engine", "--model-cache", "cache", "--prepare"]), patch.object(engine, "prepare_models") as prepare:
+            engine.main()
+            prepare.assert_called_once_with("cache")
+
     def test_role_correction_only_loads_voice_model_and_keeps_number_hint(self):
         loads = []
         class Model:

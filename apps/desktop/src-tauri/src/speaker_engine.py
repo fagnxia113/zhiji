@@ -27,6 +27,8 @@ def find_local_model(model_cache, model_class):
     for root, _, files in os.walk(model_cache):
         if "config.yaml" not in files:
             continue
+        if any(name.endswith((".incomplete", ".part")) for name in files) or not any(name in files for name in ("model.pt", "campplus_cn_common.bin")):
+            continue
         try:
             with open(os.path.join(root, "config.yaml"), "r", encoding="utf-8") as config:
                 if re.search(rf"^model:\s*{re.escape(model_class)}\s*$", config.read(), re.MULTILINE):
@@ -34,6 +36,24 @@ def find_local_model(model_cache, model_class):
         except OSError:
             continue
     return None
+
+
+def prepare_models(model_cache):
+    """Reuse complete models; prepare only the four post-meeting models."""
+    from modelscope import snapshot_download
+    required = [
+        ("SeacoParaformer", "iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch", "quality-seaco"),
+        ("FsmnVADStreaming", "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch", "quality-vad"),
+        ("CTTransformer", "iic/punc_ct-transformer_cn-en-common-vocab471067-large", "quality-punc"),
+        ("CAMPPlus", "iic/speech_campplus_sv_zh-cn_16k-common", "quality-speaker"),
+    ]
+    for model_class, model_id, local_name in required:
+        if find_local_model(model_cache, model_class) is None:
+            directory = os.path.join(model_cache, local_name)
+            os.makedirs(directory, exist_ok=True)
+            snapshot_download(model_id=model_id, revision="master", local_dir=directory)
+            if find_local_model(model_cache, model_class) is None:
+                raise RuntimeError(f"{model_class} 模型下载不完整，请重试")
 
 
 def normalize_sentence_info(payload, audio_sample_count):
@@ -309,17 +329,27 @@ def recognize_audio(audio_path, hotwords, recognizer, get_speaker_model, skip_sp
 
 def main():
     parser = argparse.ArgumentParser()
-    inputs = parser.add_mutually_exclusive_group(required=True)
+    inputs = parser.add_mutually_exclusive_group()
     inputs.add_argument("--audio")
     inputs.add_argument("--jobs", help="JSON list of audio/skipSpeakers jobs")
-    parser.add_argument("--output", required=True)
+    parser.add_argument("--output")
     parser.add_argument("--model-cache", required=True)
     parser.add_argument("--hotwords", default="")
     parser.add_argument("--skip-speakers", action="store_true")
     parser.add_argument("--segments", help="Saved timestamps for speaker-only correction")
     parser.add_argument("--speaker-count", type=int)
     parser.add_argument("--embedding-cache")
+    parser.add_argument("--prepare", action="store_true", help="Prepare post-meeting models, without recognition")
     args = parser.parse_args()
+    os.environ["MODELSCOPE_CACHE"] = args.model_cache
+    os.environ["HF_HOME"] = args.model_cache
+    if args.prepare:
+        if args.audio or args.jobs or args.segments or args.speaker_count is not None or args.embedding_cache:
+            parser.error("--prepare 不接受录音或角色修正参数")
+        prepare_models(args.model_cache)
+        return
+    if not (args.audio or args.jobs) or not args.output:
+        parser.error("需提供 --audio 或 --jobs，以及 --output")
     if not args.segments and (args.speaker_count is not None or args.embedding_cache):
         parser.error("--speaker-count 和 --embedding-cache 仅用于 --segments 角色修正")
 

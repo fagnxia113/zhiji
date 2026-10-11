@@ -12,12 +12,6 @@ use std::thread::{self, JoinHandle};
 
 use wasapi::*;
 
-#[derive(Debug)]
-pub struct LiveAudioChunk {
-    pub source: &'static str,
-    pub audio: Vec<u8>,
-}
-
 pub struct SystemCaptureHandle {
     pub stop_flag: Arc<AtomicBool>,
     pub join_handle: Option<JoinHandle<()>>,
@@ -190,14 +184,14 @@ pub fn check_system_capture() -> Result<(), String> {
 }
 
 /// 启动系统声音（loopback）采集线程，写入 {meeting_id}-sys.raw。失败仅记日志，不影响麦克风。
-pub fn begin_system_capture(recordings_dir: &Path, meeting_id: &str, live_sender: Option<crate::live_session::LiveAudioInput>) -> SystemCaptureHandle {
+pub fn begin_system_capture(recordings_dir: &Path, meeting_id: &str) -> SystemCaptureHandle {
     let stop_flag = Arc::new(AtomicBool::new(false));
     let error = Arc::new(Mutex::new(None));
     let sys_path = recordings_dir.join(format!("{meeting_id}-sys.raw"));
     let flag = stop_flag.clone();
     let error_state = error.clone();
     let handle = thread::spawn(move || {
-        if let Err(err) = capture_loop(sys_path, flag, live_sender) {
+        if let Err(err) = capture_loop(sys_path, flag) {
             eprintln!("系统声音采集失败（不影响麦克风录音）：{err}");
             if let Ok(mut value) = error_state.lock() {
                 *value = Some(err);
@@ -211,7 +205,7 @@ pub fn begin_system_capture(recordings_dir: &Path, meeting_id: &str, live_sender
     }
 }
 
-fn capture_loop(temp_path: PathBuf, stop_flag: Arc<AtomicBool>, live_sender: Option<crate::live_session::LiveAudioInput>) -> Result<(), String> {
+fn capture_loop(temp_path: PathBuf, stop_flag: Arc<AtomicBool>) -> Result<(), String> {
     let _ = wasapi::initialize_mta();
     let enumerator = DeviceEnumerator::new().map_err(|e| format!("枚举音频设备失败：{e}"))?;
     // loopback：在默认播放设备上以 Capture 初始化，即捕获系统输出声音
@@ -245,8 +239,6 @@ fn capture_loop(temp_path: PathBuf, stop_flag: Arc<AtomicBool>, live_sender: Opt
         .start_stream()
         .map_err(|e| format!("启动系统声音采集失败：{e}"))?;
     let mut queue: VecDeque<u8> = VecDeque::new();
-    let mut live_pending: Vec<u8> = Vec::new();
-    const LIVE_CHUNK_BYTES: usize = 19_200; // 16kHz * 0.6s * 16-bit mono
     loop {
         capture_client
             .read_from_device_to_deque(&mut queue)
@@ -255,21 +247,8 @@ fn capture_loop(temp_path: PathBuf, stop_flag: Arc<AtomicBool>, live_sender: Opt
             let chunk: Vec<u8> = queue.drain(..).collect();
             file.write_all(&chunk)
                 .map_err(|e| format!("写入系统声音失败：{e}"))?;
-            if let Some(sender) = &live_sender {
-                live_pending.extend_from_slice(&chunk);
-                while live_pending.len() >= LIVE_CHUNK_BYTES {
-                    let remainder = live_pending.split_off(LIVE_CHUNK_BYTES);
-                    let audio = std::mem::replace(&mut live_pending, remainder);
-                    let _ = sender.send(LiveAudioChunk { source: "system", audio });
-                }
-            }
         }
         if stop_flag.load(Ordering::Relaxed) {
-            if let Some(sender) = &live_sender {
-                if !live_pending.is_empty() {
-                    let _ = sender.send(LiveAudioChunk { source: "system", audio: std::mem::take(&mut live_pending) });
-                }
-            }
             audio_client.stop_stream().ok();
             break;
         }

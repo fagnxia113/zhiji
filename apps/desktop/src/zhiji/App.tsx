@@ -8,7 +8,7 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { CheckCircle2, FolderOpen, House, LoaderCircle, Mic, Plus, RefreshCw, Settings, Square, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AiSettings, AnalysisPreview, AnalysisResult, AsrEngineSettings, BackupInfo, BeginRecordingResult, LiveTranscriptState, RecordingFinalizeResult, RecordingSessionStatus, RecordingSettings, LocalAsrStatus, Meeting, MeetingTemplate, OfflineInstallManifest, Processing, SpeakerEngineStatus, Task, View, Workspace } from "./types";
+import type { AiSettings, AnalysisPreview, AnalysisResult, AsrEngineSettings, BackupInfo, BeginRecordingResult, RecordingFinalizeResult, RecordingSessionStatus, RecordingSettings, LocalAsrStatus, Meeting, MeetingTemplate, OfflineInstallManifest, Processing, SpeakerEngineStatus, Task, View, Workspace } from "./types";
 import { defaultRecordingSettings } from "./types";
 import { localDateKey, taskDueState } from "./workflow";
 import { duration } from "./format";
@@ -49,7 +49,7 @@ function interruptedJobCopy(stage: Exclude<Processing, null>) {
       detail: "原文和已保存内容没有丢失，可以回到会议后重新操作。",
     };
   }
-  if (["downloading", "installingSpeaker", "checkingLiveEngine"].includes(stage)) {
+  if (["downloading", "installingSpeaker"].includes(stage)) {
     return {
       title: "上次引擎准备没有完成",
       detail: "可以在设置中重新检查或继续下载。",
@@ -76,24 +76,6 @@ function interruptedProcessingJob(): InterruptedProcessingJob | null {
     return null;
   }
 }
-const emptyLiveTranscript: LiveTranscriptState = {
-  meetingId: "",
-  sessionId: "",
-  lastSequence: 0,
-  phase: "idle",
-  ready: false,
-  text: "",
-  partial: "",
-  partialId: "",
-  partialSource: "",
-  segments: [],
-  warning: "",
-  listeningSources: [],
-  microphoneLevel: 0,
-  systemLevel: 0,
-  qualityState: "loading",
-  refiningCount: 0,
-};
 const defaultAiSettings: AiSettings = {
   baseUrl: "https://api.openai.com/v1",
   analysisModel: "gpt-4o-mini",
@@ -115,52 +97,6 @@ const defaultAsrEngine: AsrEngineSettings = {
   cloudKeySaved: false,
   localHotwords: "",
 };
-const LIVE_AUDIO_BACKLOG_WARNING = "实时字幕处理暂时落后，正在补齐；完整录音不会受影响。";
-
-function pcmBase64(samples: Int16Array) {
-  const bytes = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength);
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 8192) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
-  }
-  return btoa(binary);
-}
-
-class StreamingPcmResampler {
-  private readonly ratio: number;
-  private buffer = new Float32Array(0);
-  private position = 0;
-
-  constructor(inputRate: number, outputRate = 16000) {
-    this.ratio = inputRate / outputRate;
-  }
-
-  push(input: Float32Array) {
-    if (!input.length) return new Int16Array(0);
-    const merged = new Float32Array(this.buffer.length + input.length);
-    merged.set(this.buffer);
-    merged.set(input, this.buffer.length);
-    this.buffer = merged;
-
-    const values: number[] = [];
-    while (this.position + 1 < this.buffer.length) {
-      const left = Math.floor(this.position);
-      const fraction = this.position - left;
-      const sample = this.buffer[left] * (1 - fraction) + this.buffer[left + 1] * fraction;
-      const value = Math.max(-1, Math.min(1, sample));
-      values.push(value < 0 ? Math.round(value * 32768) : Math.round(value * 32767));
-      this.position += this.ratio;
-    }
-
-    const consumed = Math.floor(this.position);
-    if (consumed > 0) {
-      this.buffer = this.buffer.slice(consumed);
-      this.position -= consumed;
-    }
-    return Int16Array.from(values);
-  }
-}
-
 function updateErrorMessage(error: unknown) {
   const message = String(error).replace(/^Error:\s*/i, "").trim();
   if (!message) return "更新服务暂时不可用，请稍后重试。";
@@ -229,17 +165,12 @@ export function App() {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recordingCandidate, setRecordingCandidate] = useState<Meeting | null>(null);
   const [recordingSession, setRecordingSession] = useState<RecordingSessionStatus | null>(null);
-  const [liveTranscript, setLiveTranscript] = useState<LiveTranscriptState>(emptyLiveTranscript);
   const [processing, setProcessing] = useState<Processing>(null);
   const [processingMeetingId, setProcessingMeetingId] = useState("");
   const [processingSeconds, setProcessingSeconds] = useState(0);
   const [processingCancelRequested, setProcessingCancelRequested] = useState(false);
   const [interruptedJob, setInterruptedJob] = useState<InterruptedProcessingJob | null>(interruptedProcessingJob);
   const recorder = useRef<MediaRecorder | null>(null);
-  const liveCaptureCleanup = useRef<(() => void) | null>(null);
-  const liveAudioQueue = useRef<Promise<void>>(Promise.resolve());
-  const liveAudioPendingCount = useRef(0);
-  const liveAudioWritable = useRef(false);
   const pendingUpdateRef = useRef<Update | null>(null);
   const recordingSecondsRef = useRef(0);
   const asrStatusRef = useRef(asrStatus);
@@ -366,126 +297,6 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [processing]);
 
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    void listen<{ meetingId: string; event: Record<string, unknown> }>("zhiji://live-transcript", ({ payload }) => {
-      const event = payload.event;
-      const type = String(event.type ?? "");
-      setLiveTranscript((current) => {
-        if (current.meetingId && current.meetingId !== payload.meetingId) return current;
-        const sessionId = String(event.sessionId ?? "");
-        const sequence = Math.max(0, Number(event.sequence ?? 0));
-        // 每次录音只接收自己的有序事件。这样模型自动重启或事件重复投递时，
-        // 旧状态不会覆盖新字幕，同一句 final 也不会重复追加。
-        if (!current.sessionId && sessionId && type !== "starting" && type !== "ready") return current;
-        if (current.sessionId && sessionId && current.sessionId !== sessionId) return current;
-        if (sessionId && current.sessionId === sessionId && sequence > 0 && sequence <= current.lastSequence) {
-          return current;
-        }
-        const next = {
-          ...current,
-          meetingId: payload.meetingId,
-          sessionId: current.sessionId || sessionId,
-          lastSequence: sequence > 0 ? sequence : current.lastSequence,
-        };
-        if (type === "ready") {
-          next.ready = true;
-          next.phase = "running";
-          next.warning = "";
-        }
-        if (type === "starting") {
-          next.ready = false;
-          next.phase = "starting";
-          next.warning = "";
-        }
-        if (type === "restarting") {
-          next.ready = false;
-          next.phase = "recovering";
-          next.warning = "";
-          next.partial = "";
-          next.partialId = "";
-          next.partialSource = "";
-          next.listeningSources = [];
-          next.refiningCount = 0;
-        }
-        if (type === "degraded") {
-          next.ready = false;
-          next.phase = "degraded";
-          next.partial = "";
-          next.partialId = "";
-          next.partialSource = "";
-          next.warning = String(event.message ?? "本场会议已切换为会后校正");
-          next.refiningCount = 0;
-        }
-        if (type === "finished") {
-          next.ready = false;
-          next.phase = "finished";
-        }
-        if (type === "listening") {
-          const source = String(event.source ?? "microphone");
-          if (!next.listeningSources.includes(source)) next.listeningSources = [...next.listeningSources, source];
-        }
-        if (type === "level") {
-          const level = Math.max(0, Math.min(1, Number(event.level ?? 0)));
-          if (event.source === "system") next.systemLevel = level;
-          else next.microphoneLevel = level;
-        }
-        if (type === "partial") {
-          next.text = String(event.transcript ?? next.text);
-          next.partial = String(event.partial ?? "");
-          next.partialId = String(event.utteranceId ?? "");
-          next.partialSource = String(event.source ?? "microphone");
-        }
-        if (type === "quality-loading") next.qualityState = "loading";
-        if (type === "quality-ready") next.qualityState = "ready";
-        if (type === "quality-unavailable") {
-          next.qualityState = "fallback";
-          next.warning = String(event.message ?? "本场使用实时初稿，会后仍会完整校正");
-        }
-        if (type === "refining") {
-          next.refiningCount += 1;
-        }
-        if (type === "refining-done") {
-          next.refiningCount = Math.max(0, next.refiningCount - 1);
-        }
-        if (type === "final") {
-          const text = String(event.text ?? "").trim();
-          next.text = String(event.transcript ?? next.text);
-          const utteranceId = String(event.utteranceId ?? "");
-          if (!utteranceId || !next.partialId || next.partialId === utteranceId) {
-            next.partial = "";
-            next.partialId = "";
-            next.partialSource = "";
-          }
-          if (text) {
-            const source = event.source === "system" ? "system" : "microphone";
-            const startMs = Number(event.startMs ?? 0);
-            const endMs = Number(event.endMs ?? 0);
-            const duplicate = next.segments.some((segment) =>
-              segment.speakerId === (source === "system" ? 1 : 0)
-              && segment.startMs === startMs
-              && segment.endMs === endMs
-              && segment.text === text
-            );
-            if (!duplicate) {
-              next.segments = [...next.segments, {
-                speaker: source === "system" ? "会议声音" : "我",
-                speakerId: source === "system" ? 1 : 0,
-                startMs,
-                endMs,
-                text,
-                refined: Boolean(event.refined),
-              }].sort((left, right) => left.startMs - right.startMs);
-            }
-          }
-        }
-        if (type === "warning") next.warning = String(event.message ?? "实时转写出现异常");
-        if (type === "quality-warning") next.qualityState = "fallback";
-        return next;
-      });
-    }).then((dispose) => { unlisten = dispose; });
-    return () => unlisten?.();
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -764,7 +575,7 @@ export function App() {
   // 自动保存：选中会议内容变化后 1.5 秒无操作即静默保存（不打断输入，不刷新列表）
   useEffect(() => {
     if (!selectedMeeting) return;
-    if (processingMeetingId === selectedMeeting.id) {
+    if (processingMeetingId === selectedMeeting.id || (recordingPhase === "finalizing" && activeRecordingMeetingId === selectedMeeting.id)) {
       setAutoSaveHint("处理完成后继续保存");
       return;
     }
@@ -790,7 +601,7 @@ export function App() {
       })();
     }, 1500);
     return () => window.clearTimeout(timer);
-  }, [selectedMeeting, persistMeeting, processingMeetingId]);
+  }, [selectedMeeting, persistMeeting, processingMeetingId, recordingPhase, activeRecordingMeetingId]);
 
   const createMeeting = async () => {
     if (recordingBusy) {
@@ -1101,107 +912,6 @@ export function App() {
     setRecordingCandidate(meeting);
   };
 
-  const startMicrophoneLiveCapture = async (
-    stream: MediaStream,
-    meetingId: string,
-    context: AudioContext,
-    contextReady: Promise<void>,
-  ) => {
-    await contextReady;
-    if (context.state === "suspended") await context.resume();
-    if (context.state !== "running") {
-      await context.close();
-      throw new Error("麦克风实时音频通道未能启动");
-    }
-    await context.audioWorklet.addModule("/zhiji-pcm-capture.js");
-    const source = context.createMediaStreamSource(stream);
-    const processor = new AudioWorkletNode(context, "zhiji-pcm-capture", {
-      numberOfInputs: 1,
-      numberOfOutputs: 1,
-      channelCount: 1,
-      outputChannelCount: [1],
-    });
-    const silent = context.createGain();
-    silent.gain.value = 0;
-    let pending = new Int16Array(0);
-    // 保留跨 AudioWorklet 数据块的分数采样位置，避免 44.1kHz 设备每 4096 帧产生一次断点和时间漂移。
-    const resampler = new StreamingPcmResampler(context.sampleRate);
-    let lastLevelAt = 0;
-    const send = (samples: Int16Array) => {
-      if (!liveAudioWritable.current) return;
-      const audioBase64 = pcmBase64(samples);
-      liveAudioPendingCount.current += 1;
-      if (liveAudioPendingCount.current >= 8) {
-        setLiveTranscript((current) => ({
-          ...current,
-          warning: current.warning || LIVE_AUDIO_BACKLOG_WARNING,
-        }));
-      }
-      liveAudioQueue.current = liveAudioQueue.current
-        .then(async () => {
-          try {
-            await invoke("append_live_audio", { meetingId, audioBase64 });
-          } catch (error) {
-            liveAudioWritable.current = false;
-            const message = String(error);
-            setLiveTranscript((current) => ({
-              ...current,
-              ready: false,
-              phase: "degraded",
-              warning: message.includes("会后校正")
-                ? message
-                : `实时音频写入失败：${message}`,
-            }));
-          }
-        })
-        .finally(() => {
-          const remaining = Math.max(0, liveAudioPendingCount.current - 1);
-          liveAudioPendingCount.current = remaining;
-          if (remaining <= 2) {
-            setLiveTranscript((current) => current.warning === LIVE_AUDIO_BACKLOG_WARNING
-              ? { ...current, warning: "" }
-              : current);
-          }
-        });
-    };
-    processor.port.onmessage = (event: MessageEvent<Float32Array>) => {
-      const input = event.data;
-      const chunk = resampler.push(input);
-      const now = performance.now();
-      if (now - lastLevelAt > 250) {
-        let energy = 0;
-        for (const sample of input) energy += sample * sample;
-        const level = Math.min(1, Math.sqrt(energy / Math.max(1, input.length)) * 8);
-        setLiveTranscript((current) => ({ ...current, microphoneLevel: level }));
-        lastLevelAt = now;
-      }
-      const combined = new Int16Array(pending.length + chunk.length);
-      combined.set(pending);
-      combined.set(chunk, pending.length);
-      let offset = 0;
-      while (combined.length - offset >= 9600) {
-        send(combined.slice(offset, offset + 9600));
-        offset += 9600;
-      }
-      pending = combined.slice(offset);
-    };
-    source.connect(processor);
-    processor.connect(silent);
-    silent.connect(context.destination);
-    liveCaptureCleanup.current = () => {
-      processor.port.onmessage = null;
-      processor.port.close();
-      source.disconnect();
-      processor.disconnect();
-      silent.disconnect();
-      if (pending.length) send(pending);
-      liveAudioWritable.current = false;
-      pending = new Int16Array(0);
-      void context.close();
-      liveCaptureCleanup.current = null;
-    };
-  };
-
   const startRecording = async (
     stream: MediaStream,
     microphoneLabel: string,
@@ -1216,42 +926,13 @@ export function App() {
       notify("没有找到要录制的会议");
       return;
     }
-    // 必须在用户点击“开始录音”的同步调用栈中创建并唤醒 AudioContext；
-    // 等后端模型启动后再创建，Windows WebView 可能因自动播放策略保持 suspended。
-    // 优先让 Web Audio 使用浏览器内建的高质量重采样；不支持 16kHz 时再由连续重采样器兜底。
-    let liveContext: AudioContext;
-    try {
-      liveContext = new AudioContext({ sampleRate: 16000 });
-    } catch {
-      liveContext = new AudioContext();
-    }
-    const liveContextReady = liveContext.resume().catch(() => undefined);
     setActiveRecordingMeetingId(meeting.id);
     setRecordingPhase("starting");
     try {
       const meetingId = meeting.id;
       // 先在后端建好空文件，录音过程中每 10 秒追加一段，意外退出时尽量保留已录内容。
-      setLiveTranscript({ ...emptyLiveTranscript, meetingId });
-      liveAudioQueue.current = Promise.resolve();
-      liveAudioPendingCount.current = 0;
-      liveAudioWritable.current = false;
       const begin = await invoke<BeginRecordingResult>("begin_recording", { meetingId, captureSystem: captureSystemAudio });
       if (begin.warning) notify(begin.warning);
-      if (begin.liveEnabled) {
-        try {
-          // 前端只负责采集。后端保留少量启动前声音，并统一处理启动、恢复、停止和会后降级。
-          liveAudioWritable.current = true;
-          await startMicrophoneLiveCapture(stream, meetingId, liveContext, liveContextReady);
-        } catch (error) {
-          liveAudioWritable.current = false;
-          await liveContext.close().catch(() => undefined);
-          const warning = `麦克风实时字幕未启动：${String(error)}。录音仍会正常保存。`;
-          setLiveTranscript((current) => ({ ...current, phase: "degraded", warning }));
-          notify(warning);
-        }
-      } else {
-        await liveContext.close().catch(() => undefined);
-      }
       const mediaRecorder = new MediaRecorder(stream);
       let chunkQueue: Promise<void> = Promise.resolve();
       let chunkFailed = "";
@@ -1296,8 +977,7 @@ export function App() {
         void (async () => {
           try {
             await chunkQueue;
-            liveCaptureCleanup.current?.();
-            await liveAudioQueue.current;
+            await flushSelectedMeeting();
             if (chunkFailed) {
               notify(`录音写入失败：${chunkFailed}。已保留写入成功的部分。`);
             }
@@ -1360,7 +1040,7 @@ export function App() {
                 });
                 if (selectedMeetingRef.current?.id === meetingId) setSelectedMeeting(meeting);
                 notify(
-                  "录音已保存，并自动完成转写。安装本地实时会议引擎后，还可边录边出字幕并区分发言人。",
+                  "录音已保存，并自动完成转写。安装本地会议引擎后，还可在会后区分发言人。",
                 );
               }
               await reload();
@@ -1390,15 +1070,10 @@ export function App() {
         microphoneLabel,
         captureSystemAudio,
         warning: "",
-        liveEnabled: begin.liveEnabled,
-        liveSource: begin.liveSource,
       });
       setRecordingPhase("recording");
       mediaRecorder.start(4000);
     } catch (error) {
-      liveCaptureCleanup.current?.();
-      await liveContext.close().catch(() => undefined);
-      await liveAudioQueue.current.catch(() => undefined);
       await invoke("abort_recording", { meetingId: meeting.id }).catch(() => undefined);
       stream.getTracks().forEach((track) => track.stop());
       setRecordingSession(null);
@@ -1412,7 +1087,6 @@ export function App() {
     if (recordingPhase !== "recording") return;
     setRecordingPhase("finalizing");
     if (activeRecordingMeetingId) void invoke("stop_recording_capture", { meetingId: activeRecordingMeetingId });
-    liveCaptureCleanup.current?.();
     if (recorder.current?.state !== "inactive") {
       recorder.current?.stop();
     }
@@ -1571,21 +1245,9 @@ export function App() {
         "install_speaker_engine_command",
       );
       setSpeakerStatus(status);
-      notify("本地双遍会议引擎已就绪。现在会先实时出字，再按句高精度校正，并在会后区分发言人。");
+      notify("本地会议引擎已就绪。录音结束后可生成完整原文并区分发言人。");
     } catch (error) {
-      notify(`安装本地实时会议引擎失败：${String(error)}`);
-    } finally {
-      finishProcessing();
-    }
-  };
-
-  const checkLiveEngine = async () => {
-    try {
-      beginProcessing("checkingLiveEngine");
-      await invoke<string>("check_live_engine");
-      notify("实时字幕自检通过：流式初稿、句末高精度校正和热词模型均正常。");
-    } catch (error) {
-      notify(`实时字幕自检失败：${String(error)}`);
+      notify(`安装本地会议引擎失败：${String(error)}`);
     } finally {
       finishProcessing();
     }
@@ -1956,7 +1618,6 @@ export function App() {
             recordingFinalizing={recordingPhase === "finalizing"}
             recordingSeconds={recordingSeconds}
             recordingSession={recordingSession}
-            liveTranscript={liveTranscript}
             onRecord={() => requestRecording()}
             onStop={stopRecording}
             asrStatus={asrStatus}
@@ -2016,7 +1677,6 @@ export function App() {
             onClearAiKey={() => void clearAiKey()}
             onDownloadAsr={() => void downloadLocalAsr()}
             onInstallSpeaker={() => void installSpeakerEngine()}
-            onCheckLiveEngine={() => void checkLiveEngine()}
             offlineManifest={offlineManifest}
             onOpenOfflineFolder={(id) => void openOfflineFolder(id)}
             onImportOfflineItem={(id, kind) => void importOfflineItem(id, kind)}
@@ -2067,7 +1727,7 @@ export function App() {
           transcriptionReady={
             asrEngine.provider === "cloud"
               ? asrEngine.cloudKeySaved
-              : speakerStatus.installed && speakerStatus.modelsReady
+              : (speakerStatus.installed && speakerStatus.modelsReady) || (asrStatus.installed && asrStatus.runtimeAvailable)
           }
           transcriptionLabel={
             asrEngine.provider === "cloud"
@@ -2075,8 +1735,10 @@ export function App() {
                 ? "云端转写已配置，录音结束后自动转写"
                 : "云端密钥尚未配置，录音仍会正常保存"
               : speakerStatus.installed && speakerStatus.modelsReady
-                ? "本地双遍字幕已就绪：实时出初稿，停顿后按句精校"
-                : "实时引擎尚未就绪，录音仍会正常保存并可会后转写"
+                ? "会后转写与说话人区分已就绪"
+                : asrStatus.installed && asrStatus.runtimeAvailable
+                  ? "轻量会后转写已就绪；区分发言人需安装会议引擎"
+                : "会后引擎尚未就绪，录音仍会正常保存，可配置后再转写"
           }
           onClose={() => {
             setRecordingCandidate(null);

@@ -46,8 +46,8 @@ export function OnboardingModal({
             <strong>{asrEngine.provider === "local" ? "本地语音转写" : "云端语音转写"}</strong>
             <small>{asrEngine.provider === "cloud"
               ? (transcriptionReady ? "云端转写已配置，使用时将向服务商发送录音" : "还需要配置云端转写服务")
-              : speakerStatus.installed && speakerStatus.modelsReady ? "本地实时字幕与会后转写引擎已准备"
-                : transcriptionReady ? "轻量离线转写已准备；实时字幕需另外配置引擎" : "还需要在设置中完成引擎配置"}</small>
+              : speakerStatus.installed && speakerStatus.modelsReady ? "本地会后转写与发言人区分已准备"
+                : transcriptionReady ? "轻量离线转写已准备；区分发言人需配置本地会议引擎" : "还需要在设置中完成引擎配置"}</small>
           </div>
           {transcriptionReady && <Check size={17} />}
         </div>

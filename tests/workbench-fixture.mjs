@@ -103,8 +103,8 @@ export function installFixture({ failStartup = false, failSettings = false, empt
       if (command === "recover_interrupted_recordings") { if (window.__fixture.failStartup) throw Error("测试：资料库暂不可用"); return 0; }
       if (command === "load_workspace") return structuredClone(workspace);
       if (command === "get_ai_settings") { if (window.__fixture.failSettings) throw Error("测试：配置暂不可用"); return { baseUrl: "https://api.openai.com/v1", analysisModel: "gpt-4o-mini", isConfigured: true }; }
-      if (command === "get_local_asr_status") return { installed: true, runtimeAvailable: true, modelSizeMb: 240 };
-      if (command === "get_speaker_engine_status") return { installed: true, modelsReady: true };
+      if (command === "get_local_asr_status") return { installed: !window.__fixture.noAsrModels, runtimeAvailable: true, modelSizeMb: 240 };
+      if (command === "get_speaker_engine_status") return { installed: !window.__fixture.noAsrModels, modelsReady: !window.__fixture.noAsrModels };
       if (command === "get_asr_engine_settings") return { provider: "local", cloudBaseUrl: "", cloudModel: "", cloudKeySaved: false, localHotwords: "" };
       if (command === "get_recording_settings") return { captureSystemAudio: false };
       if (command === "list_backups") return [];
@@ -123,6 +123,22 @@ export function installFixture({ failStartup = false, failSettings = false, empt
         return null;
       }
       if (command === "save_meeting") { const i = workspace.meetings.findIndex(m => m.id === args.meeting.id); if (i >= 0) workspace.meetings[i] = args.meeting; return null; }
+      if (command === "check_recording_readiness") return { storageReady: true, systemAudioReady: true, systemAudioMessage: "未开启，本次只录麦克风" };
+      if (command === "begin_recording") { window.__fixture.activeRecording = args.meetingId; return { warning: null }; }
+      if (command === "append_recording_chunk") { (window.__fixture.audioChunks ??= []).push({ meetingId: args.meetingId, length: args.dataUrl.length }); return null; }
+      if (command === "stop_recording_capture" || command === "abort_recording") return null;
+      if (command === "finalize_recording") {
+        const m = workspace.meetings.find(m => m.id === args.meetingId);
+        window.__fixture.notesAtFinalize = m.notes;
+        Object.assign(m, { audioPath: "C:/fixture/new-recording.webm", durationSeconds: args.durationSeconds, status: "已录音", transcript: "", speakerSegments: "[]", speakerNames: "{}", minutes: "", decisions: "" });
+        return { meeting: structuredClone(m), systemAudioCaptured: false, warning: null };
+      }
+      if (command === "transcribe_meeting_with_speakers") {
+        const m = workspace.meetings.find(m => m.id === args.meetingId);
+        const segments = [0, 1, 2].map((speakerId, i) => ({ speakerId, speaker: `发言人 ${speakerId + 1}`, startMs: i * 1000, endMs: i * 1000 + 900, text: `会后转写第 ${i + 1} 段` }));
+        Object.assign(m, { speakerSegments: JSON.stringify(segments), transcript: segments.map(s => `【${s.speaker}】${s.text}`).join("\n"), status: "已区分发言人" });
+        return structuredClone(m);
+      }
       if (command === "rediarize_meeting") {
         const f = window.__fixture;
         (f.roleCalls ??= []).push(structuredClone(args));

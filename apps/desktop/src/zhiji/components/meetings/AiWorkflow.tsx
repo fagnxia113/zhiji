@@ -108,7 +108,7 @@ export function AiWorkflow({
         {!cloud && !speakerReady && asrStatus.installed && !autoTranscribing ? (
           <button className="secondary-button compact-button" onClick={onInstallSpeaker} disabled={processing !== null || blocked}>
             {processing === "installingSpeaker" ? <LoaderCircle className="spin" size={14} /> : <UsersRound size={14} />}
-            {processing === "installingSpeaker" ? "正在安装" : "安装实时字幕"}
+            {processing === "installingSpeaker" ? "正在安装" : "安装会议引擎"}
           </button>
         ) : null}
         {!aiConfigured ? (

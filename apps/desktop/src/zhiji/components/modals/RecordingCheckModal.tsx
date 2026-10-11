@@ -277,7 +277,7 @@ export function RecordingCheckModal({
             <Mic size={18} />
           </span>
           <div>
-            <strong>转写与实时字幕</strong>
+            <strong>会后转写</strong>
             <small>{transcriptionLabel}</small>
           </div>
           {transcriptionReady ? (
@@ -295,7 +295,7 @@ export function RecordingCheckModal({
           className="secondary-button"
           onClick={transcriptionReady ? onClose : onOpenSettings}
         >
-          {transcriptionReady ? "取消" : "先配置实时字幕"}
+          {transcriptionReady ? "取消" : "配置会后转写"}
         </button>
         <button className="primary-button" disabled={!ready} onClick={start}>
           <Mic size={15} /> 开始录音

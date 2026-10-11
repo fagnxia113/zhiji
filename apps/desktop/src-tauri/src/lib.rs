@@ -9,7 +9,6 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 mod recorder;
-mod live_session;
 mod workbench;
 mod project_hub;
 mod local_api;
@@ -40,7 +39,7 @@ const OFFICIAL_PYPI_INDEX: &str = "https://pypi.org/simple";
 const PYTORCH_CPU_INDEX: &str = "https://download.pytorch.org/whl/cpu";
 const TORCH_CPU_VERSION: &str = "torch==2.11.0+cpu";
 const TORCHAUDIO_CPU_VERSION: &str = "torchaudio==2.11.0+cpu";
-const SPEAKER_ENGINE_VERSION: &str = "11";
+const SPEAKER_ENGINE_VERSION: &str = "12";
 const SPEAKER_MODELS_VERSION: &str = "quality-2pass-v1";
 const VC_RUNTIME_DLLS: &[&str] = &[
     "concrt140.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll",
@@ -50,9 +49,8 @@ const VC_RUNTIME_DLLS: &[&str] = &[
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const PYTHON_EMBED_URL: &str = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip";
-// FunASR 说话人引擎用到的五组权重（ModelScope 仓库页），供手动下载时对照。
+// FunASR 会后说话人引擎用到的四组权重（ModelScope 仓库页），供手动下载时对照。
 const FUNASR_MODEL_REPOS: &[(&str, &str)] = &[
-    ("实时转写", "https://modelscope.cn/models/iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online"),
     ("高质量识别", "https://modelscope.cn/models/iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"),
     ("语音活动检测", "https://modelscope.cn/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch"),
     ("标点恢复", "https://modelscope.cn/models/iic/punc_ct-transformer_cn-en-common-vocab471067-large"),
@@ -153,7 +151,6 @@ struct AppState {
     analysis_parts: Mutex<analysis_jobs::RetryCache<AnalysisResponse>>,
     active_recording: Mutex<Option<String>>,
     recorders: Mutex<HashMap<String, recorder::SystemCaptureHandle>>,
-    live_sessions: Mutex<HashMap<String, live_session::LiveSession>>,
     sleep_prevention: Mutex<Option<SleepGuard>>,
 }
 
@@ -191,8 +188,6 @@ struct RecordingFinalizeResult {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BeginRecordingResult {
-    live_enabled: bool,
-    live_source: String,
     warning: Option<String>,
 }
 
@@ -666,7 +661,7 @@ fn open_state(app: &AppHandle) -> Result<AppState, Box<dyn Error>> {
     // 应用升级后直接刷新内置脚本和协议版本。Python、依赖与模型仍沿用用户
     // 已经安装的内容，不需要再次下载数 GB 的运行组件。
     if let Err(error) = refresh_speaker_engine_scripts(&speaker_engine_dir, &speaker_models_dir) {
-        eprintln!("刷新实时会议引擎脚本失败：{error}");
+        eprintln!("刷新会后会议引擎脚本失败：{error}");
     }
     let resource_dir = app.path().resource_dir()?;
     let runtime_dir = resource_folder(&resource_dir, "funasr-runtime", SENSEVOICE_EXECUTABLE);
@@ -692,13 +687,10 @@ fn open_state(app: &AppHandle) -> Result<AppState, Box<dyn Error>> {
             }
         }
     }
-    if setting(&connection, "asr_provider", "local").is_ok_and(|provider| provider == "local") {
-        live_session::warm_engine(speaker_engine_dir.clone(), speaker_models_dir.clone());
-    }
     if let Err(error) = create_daily_backup(&connection, &backups_dir) {
         eprintln!("自动备份失败：{error}");
     }
-    Ok(AppState { connection: Mutex::new(connection), data_dir, default_data_dir, config_dir, backups_dir, models_dir, recordings_dir, runtime_dir, ffmpeg_dir, vcrt_dir, speaker_engine_dir, speaker_models_dir, cancel_flag: Arc::new(AtomicBool::new(false)), cancel_child: Arc::new(Mutex::new(None)), analysis_parts: Mutex::new(analysis_jobs::RetryCache::new()), active_recording: Mutex::new(None), recorders: Mutex::new(HashMap::new()), live_sessions: Mutex::new(HashMap::new()), sleep_prevention: Mutex::new(None) })
+    Ok(AppState { connection: Mutex::new(connection), data_dir, default_data_dir, config_dir, backups_dir, models_dir, recordings_dir, runtime_dir, ffmpeg_dir, vcrt_dir, speaker_engine_dir, speaker_models_dir, cancel_flag: Arc::new(AtomicBool::new(false)), cancel_child: Arc::new(Mutex::new(None)), analysis_parts: Mutex::new(analysis_jobs::RetryCache::new()), active_recording: Mutex::new(None), recorders: Mutex::new(HashMap::new()), sleep_prevention: Mutex::new(None) })
 }
 
 fn initialize_database(connection: &Connection) -> Result<(), Box<dyn Error>> {
@@ -1288,7 +1280,6 @@ fn run_local_asr(
 
 fn speaker_python(engine_dir: &Path) -> PathBuf { engine_dir.join("python").join("python.exe") }
 fn speaker_script(engine_dir: &Path) -> PathBuf { engine_dir.join("diarize.py") }
-fn live_asr_script(engine_dir: &Path) -> PathBuf { engine_dir.join("live_asr.py") }
 fn speaker_marker(engine_dir: &Path) -> PathBuf { engine_dir.join(".installed") }
 fn speaker_models_marker(models_dir: &Path) -> PathBuf { models_dir.join(".ready") }
 
@@ -1302,7 +1293,6 @@ pub(crate) fn speaker_models_ready(models_dir: &Path) -> bool {
     fs::read_to_string(speaker_models_marker(models_dir))
         .is_ok_and(|version| version.trim() == SPEAKER_MODELS_VERSION)
         && quality_models_available(models_dir)
-        && model_config_available(&models_dir.join("realtime-online"), "ParaformerStreaming", 1)
 }
 
 fn model_config_available(directory: &Path, model: &str, depth: u8) -> bool {
@@ -1334,7 +1324,6 @@ fn model_config_available_ex(directory: &Path, model: &str, depth: u8, require_w
 fn speaker_engine_installed(engine_dir: &Path) -> bool {
     speaker_python(engine_dir).is_file()
         && speaker_script(engine_dir).is_file()
-        && live_asr_script(engine_dir).is_file()
         && fs::read_to_string(speaker_marker(engine_dir)).is_ok_and(|version| version.trim() == SPEAKER_ENGINE_VERSION)
 }
 
@@ -1351,7 +1340,6 @@ fn refresh_speaker_engine_scripts(engine_dir: &Path, models_dir: &Path) -> Resul
         && speaker_models_marker(models_dir).is_file();
     if !previously_installed { return Ok(()); }
     fs::write(speaker_script(engine_dir), include_str!("speaker_engine.py")).map_err(app_error)?;
-    fs::write(live_asr_script(engine_dir), include_str!("live_asr.py")).map_err(app_error)?;
     fs::write(speaker_marker(engine_dir), SPEAKER_ENGINE_VERSION).map_err(app_error)?;
     // 老版本已经下载过 SeACo 时直接复用，不让用户重新下载近 1 GB 权重。
     if quality_models_available(models_dir) {
@@ -1360,25 +1348,6 @@ fn refresh_speaker_engine_scripts(engine_dir: &Path, models_dir: &Path) -> Resul
         fs::write(speaker_models_marker(models_dir), "quality-model-required").map_err(app_error)?;
     }
     Ok(())
-}
-
-fn recent_live_asr_diagnostics(state: &AppState) -> Option<String> {
-    let log_path = state.speaker_engine_dir.join("live-asr-last.log");
-    let content = fs::read_to_string(log_path).ok()?;
-    let mut tail = content.lines().rev().take(80).collect::<Vec<_>>();
-    tail.reverse();
-    let mut sanitized = tail.join("\n");
-    for (path, replacement) in [
-        (&state.speaker_engine_dir, "<SPEAKER_ENGINE>"),
-        (&state.speaker_models_dir, "<MEETING_MODELS>"),
-        (&state.data_dir, "<APP_DATA>"),
-    ] {
-        sanitized = sanitized.replace(&path.to_string_lossy().to_string(), replacement);
-    }
-    if let Ok(user_profile) = std::env::var("USERPROFILE") {
-        sanitized = sanitized.replace(&user_profile, "<USER_PROFILE>");
-    }
-    (!sanitized.trim().is_empty()).then_some(sanitized)
 }
 
 fn extract_zip(archive: &Path, destination: &Path) -> Result<(), String> {
@@ -1620,10 +1589,9 @@ fn install_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf, vcrt_dir: Pa
     run_python(&python, &["-c", "import torch, torchaudio, torchgen; print(torch.__version__, torchaudio.__version__)"], "验证本地计算组件")?;
     run_python(&python, &["-m", "pip", "check"], "检查说话人引擎依赖")?;
     fs::write(speaker_script(&engine_dir), include_str!("speaker_engine.py")).map_err(app_error)?;
-    fs::write(live_asr_script(&engine_dir), include_str!("live_asr.py")).map_err(app_error)?;
-    let live_script_arg = live_asr_script(&engine_dir).to_string_lossy().into_owned();
+    let script_arg = speaker_script(&engine_dir).to_string_lossy().into_owned();
     let models_arg = models_dir.to_string_lossy().into_owned();
-    run_python(&python, &[&live_script_arg, "--model-cache", &models_arg, "--prepare"], "准备本地实时转写模型")?;
+    run_python(&python, &[&script_arg, "--model-cache", &models_arg, "--prepare"], "准备会后转写与说话人模型")?;
     fs::write(speaker_models_marker(&models_dir), SPEAKER_MODELS_VERSION).map_err(app_error)?;
     fs::write(speaker_marker(&engine_dir), SPEAKER_ENGINE_VERSION).map_err(app_error)?;
     Ok(())
@@ -1866,21 +1834,6 @@ fn meeting_hotwords(context: &str, manual: &str) -> String {
         if words.len() >= 80 { break; }
     }
     words.join(" ")
-}
-
-fn start_live_asr(
-    app: AppHandle,
-    meeting_id: String,
-    engine_dir: PathBuf,
-    models_dir: PathBuf,
-    hotwords: String,
-) -> Result<live_session::LiveSession, String> {
-    live_session::LiveSession::start(app, meeting_id, engine_dir, models_dir, hotwords)
-}
-
-fn finish_live_asr(session: live_session::LiveSession) -> (String, Vec<SpeakerSegment>, Option<String>) {
-    let result = session.finish();
-    (result.transcript, result.segments, result.warning)
 }
 
 fn meetings(connection: &Connection) -> Result<Vec<Meeting>, String> {
@@ -2148,7 +2101,6 @@ fn export_diagnostics(state: State<'_, AppState>, target_path: String) -> Result
         "validBackupCount": backups.iter().filter(|backup| backup.is_valid).count(),
         "latestBackupAt": backups.first().map(|backup| backup.created_at.clone()),
         "recordingsDirectoryAvailable": state.recordings_dir.is_dir(),
-        "liveAsrDiagnostic": recent_live_asr_diagnostics(&state),
     });
     let content = serde_json::to_string_pretty(&report).map_err(app_error)?;
     fs::write(&target, content).map_err(|error| format!("导出诊断信息失败：{error}"))?;
@@ -2182,37 +2134,12 @@ async fn download_local_asr_model(state: State<'_, AppState>) -> Result<LocalAsr
 
 #[tauri::command]
 async fn install_speaker_engine_command(state: State<'_, AppState>) -> Result<SpeakerEngineStatus, String> {
-    live_session::shutdown_warm_engine();
     let engine_dir = state.speaker_engine_dir.clone();
     let models_dir = state.speaker_models_dir.clone();
     let vcrt_dir = state.vcrt_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        install_speaker_engine(engine_dir.clone(), models_dir.clone(), vcrt_dir.clone())?;
-        if let Err(first_error) = live_session::check_engine(engine_dir.clone(), models_dir.clone()) {
-            let _ = fs::remove_file(speaker_marker(&engine_dir));
-            install_speaker_engine(engine_dir.clone(), models_dir.clone(), vcrt_dir)?;
-            live_session::check_engine(engine_dir, models_dir)
-                .map_err(|error| format!("实时字幕修复后仍未通过自检：{error}\n首次自检：{first_error}"))?;
-        }
-        Ok::<(), String>(())
-    }).await.map_err(|error| format!("说话人引擎安装任务中断：{error}"))??;
+    tauri::async_runtime::spawn_blocking(move || install_speaker_engine(engine_dir, models_dir, vcrt_dir))
+        .await.map_err(|error| format!("会议引擎安装任务中断：{error}"))??;
     Ok(speaker_engine_status(&state))
-}
-
-#[tauri::command]
-async fn check_live_engine(state: State<'_, AppState>) -> Result<String, String> {
-    if state.live_sessions.lock().map_err(|_| "实时字幕状态被占用".to_string())?.len() > 0 {
-        return Err("录音进行中，不能同时运行实时字幕自检".to_string());
-    }
-    if !speaker_engine_installed(&state.speaker_engine_dir)
-        || !speaker_models_ready(&state.speaker_models_dir) {
-        return Err("实时会议引擎尚未安装完整，请先修复引擎".to_string());
-    }
-    let engine_dir = state.speaker_engine_dir.clone();
-    let models_dir = state.speaker_models_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || live_session::check_engine(engine_dir, models_dir))
-        .await.map_err(|error| format!("实时字幕自检任务中断：{error}"))??;
-    Ok("实时字幕自检通过".to_string())
 }
 
 /// 手动安装引导：把每个可自行下载的部件的地址、目标文件名与目录交给设置页。
@@ -2354,17 +2281,14 @@ fn import_funasr_models(source: &Path, target: &Path) -> Result<(), String> {
         source.to_path_buf()
     } else if source.join("funasr-meeting").is_dir() {
         source.join("funasr-meeting")
-    } else if quality_models_available(source) || source.join("realtime-online").join("config.yaml").is_file() {
+    } else if quality_models_available(source) {
         source.to_path_buf()
     } else {
-        return Err("所选文件夹里没有找到 FunASR 权重（缺少 SeacoParaformer / realtime-online 等），请确认选择的是 funasr-meeting 文件夹".to_string());
+        return Err("所选文件夹里没有找到完整会后模型，请确认包含 SeacoParaformer、FsmnVADStreaming、CTTransformer 和 CAMPPlus".to_string());
     };
     copy_dir_recursive(&origin, target)?;
     if !quality_models_available(target) {
         return Err("已复制，但缺少高质量模型（SeacoParaformer / FsmnVADStreaming / CTTransformer / CAMPPlus 之一），补齐后请重新检测".to_string());
-    }
-    if !target.join("realtime-online").join("config.yaml").is_file() {
-        return Err("已复制，但缺少实时转写模型 realtime-online，补齐后请重新检测".to_string());
     }
     fs::write(speaker_models_marker(target), SPEAKER_MODELS_VERSION).map_err(app_error)?;
     Ok(())
@@ -2411,7 +2335,6 @@ fn get_asr_engine_settings(state: State<'_, AppState>) -> Result<AsrEngineSettin
 #[tauri::command]
 fn save_asr_engine_settings(state: State<'_, AppState>, settings: AsrEngineSettingsInput) -> Result<AsrEngineSettings, String> {
     let provider = settings.provider.trim().to_string();
-    let use_local = provider == "local";
     if provider != "local" && provider != "cloud" { return Err("转写引擎只能是 local 或 cloud".to_string()); }
     let base_url = settings.cloud_base_url.trim_end_matches('/').to_string();
     if provider == "cloud" {
@@ -2425,8 +2348,6 @@ fn save_asr_engine_settings(state: State<'_, AppState>, settings: AsrEngineSetti
     }
     let saved = asr_engine_settings(&connection)?;
     drop(connection);
-    if use_local { live_session::warm_engine(state.speaker_engine_dir.clone(), state.speaker_models_dir.clone()); }
-    else { live_session::shutdown_warm_engine(); }
     Ok(saved)
 }
 
@@ -2579,7 +2500,7 @@ fn check_recording_readiness(state: State<'_, AppState>, capture_system: bool) -
 }
 
 #[tauri::command]
-fn begin_recording(app: AppHandle, state: State<'_, AppState>, meeting_id: String, capture_system: bool) -> Result<BeginRecordingResult, String> {
+fn begin_recording(state: State<'_, AppState>, meeting_id: String, capture_system: bool) -> Result<BeginRecordingResult, String> {
     {
         let mut active = state.active_recording.lock().map_err(|_| "录音状态被占用，请重试".to_string())?;
         if let Some(current) = active.as_deref() {
@@ -2595,11 +2516,10 @@ fn begin_recording(app: AppHandle, state: State<'_, AppState>, meeting_id: Strin
     let result = (|| {
         let path = pending_recording_file(&state.recordings_dir, &meeting_id)?;
         let pending_key = pending_recording_key(&meeting_id)?;
-        let (meeting_context, asr_settings) = {
+        {
             let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-            let meeting = meeting_by_id(&connection, &meeting_id)?;
-            (format!("{}\n{}", meeting.title, meeting.context), asr_engine_settings(&connection)?)
-        };
+            meeting_by_id(&connection, &meeting_id)?;
+        }
         let _ = fs::remove_file(&path);
         recorder::remove_dual_track_sidecars(&state.recordings_dir, &pending_key);
         fs::File::create(&path).map_err(|error| format!("无法创建录音临时文件：{error}"))?;
@@ -2610,34 +2530,17 @@ fn begin_recording(app: AppHandle, state: State<'_, AppState>, meeting_id: Strin
                 params![meeting_id, "正在录音", now()],
             ).map_err(app_error)?;
         }
-        let mut live_enabled = false;
-        let mut live_warning = None;
-        let live_source = if capture_system { "microphone+system" } else { "microphone" }.to_string();
-        if asr_settings.provider == "local" {
-            let hotwords = meeting_hotwords(&meeting_context, &asr_settings.local_hotwords);
-            match start_live_asr(app, meeting_id.clone(), state.speaker_engine_dir.clone(), state.speaker_models_dir.clone(), hotwords) {
-                Ok(session) => {
-                    state.live_sessions.lock().map_err(|_| "实时转写状态被占用".to_string())?.insert(meeting_id.clone(), session);
-                    live_enabled = true;
-                }
-                Err(error) => live_warning = Some(format!("实时字幕未启动：{error}。录音和会后转写不受影响。")),
-            }
-        }
         if capture_system {
-            let live_sender = state.live_sessions.lock().ok().and_then(|sessions| sessions.get(&meeting_id).map(live_session::LiveSession::audio_input));
             let mut recorders = state.recorders.lock().map_err(|_| "录音状态被占用，请重试".to_string())?;
-            let handle = recorder::begin_system_capture(&state.recordings_dir, &pending_key, live_sender);
+            let handle = recorder::begin_system_capture(&state.recordings_dir, &pending_key);
             recorders.insert(meeting_id.clone(), handle);
         }
-        Ok(BeginRecordingResult { live_enabled, live_source: if live_enabled { live_source } else { "none".to_string() }, warning: live_warning })
+        Ok(BeginRecordingResult { warning: None })
     })();
     if result.is_err() {
         release_active_recording(&state, &meeting_id);
         let _ = fs::remove_file(pending_recording_file(&state.recordings_dir, &meeting_id).unwrap_or_default());
         if let Ok(key) = pending_recording_key(&meeting_id) { recorder::remove_dual_track_sidecars(&state.recordings_dir, &key); }
-        if let Ok(mut sessions) = state.live_sessions.lock() {
-            if let Some(session) = sessions.remove(&meeting_id) { session.abort(); }
-        }
         if let Ok(connection) = state.connection.lock() { let _ = restore_meeting_status(&connection, &meeting_id); }
     }
     result
@@ -2651,9 +2554,6 @@ fn abort_recording(state: State<'_, AppState>, meeting_id: String) -> Result<(),
     if let Some(handle) = handle {
         let _ = recorder::finalize_system_capture(handle, &state.recordings_dir, &pending_key);
     }
-    if let Ok(mut sessions) = state.live_sessions.lock() {
-        if let Some(session) = sessions.remove(&meeting_id) { session.abort(); }
-    }
     let _ = fs::remove_file(&path);
     recorder::remove_dual_track_sidecars(&state.recordings_dir, &pending_key);
     release_active_recording(&state, &meeting_id);
@@ -2666,17 +2566,6 @@ fn stop_recording_capture(state: State<'_, AppState>, meeting_id: String) -> Res
     let recorders = state.recorders.lock().map_err(|_| "录音状态被占用，请重试".to_string())?;
     if let Some(handle) = recorders.get(&meeting_id) { handle.stop_flag.store(true, Ordering::Relaxed); }
     Ok(())
-}
-
-#[tauri::command]
-fn append_live_audio(state: State<'_, AppState>, meeting_id: String, audio_base64: String) -> Result<(), String> {
-    let audio = STANDARD.decode(audio_base64).map_err(app_error)?;
-    if audio.is_empty() { return Ok(()); }
-    let sessions = state.live_sessions.lock().map_err(|_| "实时转写状态被占用".to_string())?;
-    let Some(session) = sessions.get(&meeting_id) else {
-        return Err("实时转写会话已经结束".to_string());
-    };
-    session.send_microphone(audio)
 }
 
 #[tauri::command]
@@ -2806,11 +2695,6 @@ fn finalize_recording_inner(state: &AppState, meeting_id: &str, duration_seconds
     };
     let probed = probe_audio_duration(&state.ffmpeg_dir, &final_audio);
     let final_duration = if probed > 0 { probed } else { duration_seconds };
-    let live_session = {
-        state.live_sessions.lock().ok().and_then(|mut sessions| sessions.remove(meeting_id))
-    };
-    let live_result = live_session.map(finish_live_asr);
-    let (live_transcript, live_segments, live_warning) = live_result.unwrap_or_default();
     let committed_key = format!("{meeting_id}-recording-{}", Local::now().timestamp_millis());
     let extension = final_audio.extension().and_then(|value| value.to_str()).unwrap_or("webm");
     let committed_audio = state.recordings_dir.join(format!("{committed_key}.{extension}"));
@@ -2829,14 +2713,13 @@ fn finalize_recording_inner(state: &AppState, meeting_id: &str, duration_seconds
         }
     }
     let path_string = committed_audio.to_string_lossy().to_string();
-    let segments = serde_json::to_string(&live_segments).unwrap_or_else(|_| "[]".to_string());
     let database_result = (|| -> Result<(Meeting, Option<String>), String> {
         let mut connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
         let previous_audio = meeting_by_id(&connection, meeting_id)?.audio_path;
         let transaction = connection.transaction().map_err(app_error)?;
         transaction.execute(
-            "UPDATE meetings SET audio_path = ?2, duration_seconds = ?3, status = ?4, updated_at = ?5, transcript = ?6, minutes = '', decisions = '', speaker_segments = ?7, speaker_names = '{}' WHERE id = ?1",
-            params![meeting_id, path_string, final_duration, if live_transcript.is_empty() { "已录音" } else { "实时转写完成" }, now(), live_transcript, segments],
+            "UPDATE meetings SET audio_path = ?2, duration_seconds = ?3, status = ?4, updated_at = ?5, transcript = '', minutes = '', decisions = '', speaker_segments = '[]', speaker_names = '{}' WHERE id = ?1",
+            params![meeting_id, path_string, final_duration, "已录音", now()],
         ).map_err(app_error)?;
         transaction.execute("DELETE FROM tasks WHERE source_type = 'meeting' AND source_id = ?1 AND origin = 'ai'", params![meeting_id]).map_err(app_error)?;
         transaction.commit().map_err(app_error)?;
@@ -2854,8 +2737,7 @@ fn finalize_recording_inner(state: &AppState, meeting_id: &str, duration_seconds
         if old_audio != path_string { remove_recording_bundle(&state.recordings_dir, old_audio); }
     }
     recorder::remove_dual_track_sidecars(&state.recordings_dir, meeting_id);
-    let warning = [warning, live_warning].into_iter().flatten().collect::<Vec<_>>().join("；");
-    Ok(RecordingFinalizeResult { meeting, system_audio_captured, warning: if warning.is_empty() { None } else { Some(warning) } })
+    Ok(RecordingFinalizeResult { meeting, system_audio_captured, warning })
 }
 
 #[tauri::command]
@@ -2935,8 +2817,6 @@ async fn transcribe_audio(state: &State<'_, AppState>, meeting: &Meeting) -> Res
 async fn transcribe_meeting(state: State<'_, AppState>, meeting_id: String) -> Result<Meeting, String> {
     ensure_meeting_recording_idle(&state, &meeting_id)?;
     let meeting = { let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?; meeting_by_id(&connection, &meeting_id)? };
-    // 会后模型本身会加载大权重；先释放预热的实时双模型，避免低内存电脑同时驻留多套模型。
-    live_session::shutdown_warm_engine();
     let transcript_result = transcribe_audio(&state, &meeting).await;
     let transcript = transcript_result?;
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
@@ -2962,8 +2842,6 @@ async fn transcribe_meeting_with_speakers(state: State<'_, AppState>, meeting_id
         connection.execute("UPDATE meetings SET transcript = ?2, status = ?3, updated_at = ?4 WHERE id = ?1", params![meeting_id, transcript, "已转写", now()]).map_err(app_error)?;
         return meeting_by_id(&connection, &meeting.id);
     }
-    // 结束录音后释放实时双模型，再启动包含说话人分离的整场模型，降低内存峰值。
-    live_session::shutdown_warm_engine();
     let playback_path = meeting.audio_path.clone().ok_or_else(|| "请先完成录音，再开始说话人分离".to_string())?;
     let recording_key = Path::new(&playback_path)
         .file_stem()
@@ -3044,7 +2922,6 @@ async fn rediarize_meeting(state: State<'_, AppState>, meeting_id: String, speak
     let timestamps: Vec<_> = segments.iter().map(|s| { (s.start_ms, s.end_ms).hash(&mut hash); json!({"startMs":s.start_ms,"endMs":s.end_ms}) }).collect();
     let cache_key = hash.finish();
     state.cancel_flag.store(false, Ordering::SeqCst);
-    live_session::shutdown_warm_engine();
     let engine_dir = state.speaker_engine_dir.clone();
     let models_dir = state.speaker_models_dir.clone();
     let runtime_dir = state.runtime_dir.clone();
@@ -3727,7 +3604,6 @@ fn finish_app_exit(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
     if state.active_recording.lock().map_err(|_| "录音状态正被占用，请稍后重试".to_string())?.is_some() {
         return Err("录音仍在进行，请结束录音并等待保存完成".to_string());
     }
-    live_session::shutdown_warm_engine();
     app.exit(0);
     Ok(())
 }
@@ -3939,13 +3815,13 @@ pub fn run() {
             export_meeting_markdown, export_all_markdown, reveal_recording,
             list_backups, create_backup, restore_backup, open_backups_folder, export_diagnostics,
             get_data_location, reveal_data_folder, schedule_data_relocation, clear_data_relocation_error,
-            download_local_asr_model, install_speaker_engine_command, check_live_engine,
+            download_local_asr_model, install_speaker_engine_command,
             get_offline_manifest, open_offline_folder, import_offline_item, open_offline_link,
             save_ai_settings, clear_ai_api_key,
             get_asr_engine_settings, save_asr_engine_settings, clear_cloud_asr_key, get_recording_settings, save_recording_settings,
             create_meeting, save_meeting, upsert_task, delete_task,
             check_recording_readiness, begin_recording, abort_recording, recover_interrupted_recordings,
-            append_recording_chunk, append_live_audio, stop_recording_capture, finalize_recording, get_recording_path,
+            append_recording_chunk, stop_recording_capture, finalize_recording, get_recording_path,
             import_meeting_audio, transcribe_meeting,
             transcribe_meeting_with_speakers, rediarize_meeting, cancel_processing,
             preview_meeting_analysis, apply_meeting_analysis, analyze_meeting, regenerate_meeting_section,

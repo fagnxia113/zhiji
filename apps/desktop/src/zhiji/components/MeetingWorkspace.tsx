@@ -1,10 +1,10 @@
 import { Check, CheckCircle2, ChevronRight, Columns2, Copy, FileAudio, FileDown, FolderOpen, LoaderCircle, MessageCircleQuestion, Mic, MoreHorizontal, Play, Plus, RefreshCw, Sparkles, StickyNote, Trash2, Upload, Wand2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { AsrEngineSettings, LiveTranscriptState, RecordingSessionStatus, LocalAsrStatus, Meeting, Processing, SpeakerEngineStatus, SpeakerSegment, Task } from "../types";
+import type { AsrEngineSettings, RecordingSessionStatus, LocalAsrStatus, Meeting, Processing, SpeakerEngineStatus, SpeakerSegment, Task } from "../types";
 import { MeetingStatus, isLiveDraft } from "../types";
 import { meetingJourney } from "../workflow";
 import { duration } from "../format";
-import { AiWorkflow, AudioPlayer, Dialog, EditorField, Empty, IconButton, MarkdownField, LiveMeetingStage, MeetingQaPanel, MeetingSidebar, Popover, SpeakerTimeline, StatusDot, stripHtml, TaskComposer, TaskRow, Tooltip } from "../components";
+import { AiWorkflow, AudioPlayer, Dialog, EditorField, Empty, IconButton, MarkdownField, RecordingStage, MeetingQaPanel, MeetingSidebar, Popover, SpeakerTimeline, StatusDot, stripHtml, TaskComposer, TaskRow, Tooltip } from "../components";
 
 function dateTime(value: string) {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -54,7 +54,6 @@ export function MeetingWorkspace({
   recordingFinalizing,
   recordingSeconds,
   recordingSession,
-  liveTranscript,
   onRecord,
   onStop,
   asrStatus,
@@ -95,7 +94,6 @@ export function MeetingWorkspace({
   recordingFinalizing: boolean;
   recordingSeconds: number;
   recordingSession: RecordingSessionStatus | null;
-  liveTranscript: LiveTranscriptState;
   onRecord: () => void;
   onStop: () => void;
   asrStatus: LocalAsrStatus;
@@ -494,12 +492,11 @@ export function MeetingWorkspace({
             </header>
 
             {recording ? (
-              <LiveMeetingStage
+              <RecordingStage
                 meeting={meeting}
                 recordingSeconds={recordingSeconds}
                 recordingSession={recordingSession}
                 finalizing={recordingFinalizing}
-                liveTranscript={liveTranscript}
                 formatDuration={duration}
                 onChange={onChange}
                 onStop={onStop}

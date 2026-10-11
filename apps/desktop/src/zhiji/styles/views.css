@@ -609,17 +609,9 @@
   .settings-data-summary span + span { border-left: 0; border-top: 1px solid var(--border-subtle); }
 }
 
-/* 会议中心 v2 响应式：窄窗口主从切换，录音现场优先字幕。 */
+/* 会议中心响应式：窄窗口主从切换，录音时聚焦计时与笔记。 */
 @media (max-width: 1080px) {
   .meeting-shell { grid-template-columns: 244px minmax(0, 1fr); }
-  .live-stage-grid { grid-template-columns: minmax(0, 1.35fr) minmax(250px, .65fr); }
-}
-
-@media (max-width: 880px) {
-  .live-stage-grid { grid-template-columns: 1fr; }
-  .live-stage .live-transcript-pane { min-height: 520px; }
-  .live-stage .live-transcript-scroll { max-height: 460px; }
-  .live-notes-pane textarea { min-height: 220px; }
 }
 
 @media (max-width: 760px) {
@@ -636,26 +628,17 @@
   .meeting-context, .meeting-review-tools, .meeting-workspace { width: min(calc(100% - 24px), 1120px); }
   .meeting-journey-card.is-complete { grid-template-columns: 1fr; padding: var(--space-3) var(--space-4); }
   .meeting-journey-card.is-complete .meeting-journey-actions { justify-content: flex-start; }
-  .live-stage-toolbar { align-items: stretch; flex-direction: column; }
-  .live-stage-actions { justify-content: flex-end; }
   .transcript-quality-strip { grid-template-columns: 1fr; }
   .speaker-meta { max-width: 84px; }
-  .live-stage { padding: var(--space-3); }
 }
 
 @media (max-width: 520px) {
   .meeting-detail-header { gap: var(--space-2); }
   .meeting-header-actions .autosave-hint,
   .meeting-header-actions .icon-btn { display: none; }
-  .live-stage-actions > button { flex: 1; justify-content: center; }
   /* 极窄屏：标签回到正文上方一行，时间戳常显，避免挤压正文。 */
   .speaker-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
   .speaker-meta { display: flex; align-items: center; gap: var(--space-2); max-width: none; }
   .speaker-seek { opacity: 1; }
   .meeting-workspace-tabs button { padding: 0 var(--space-3); }
-  .live-session-identity { flex-wrap: wrap; }
-  .live-session-identity time { margin-left: auto; }
-  .live-caption-row { grid-template-columns: 48px minmax(0, 1fr); }
-  .live-caption-row > strong { grid-column: 2; width: max-content; }
-  .live-caption-row p { grid-column: 1 / -1; }
 }

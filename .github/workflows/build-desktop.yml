@@ -79,7 +79,7 @@ jobs:
 
       - name: Check embedded meeting engines
         run: |
-          python -m py_compile apps/desktop/src-tauri/src/live_asr.py apps/desktop/src-tauri/src/speaker_engine.py
+          python -m py_compile apps/desktop/src-tauri/src/speaker_engine.py
           python scripts/test-speaker-engine.py
           python scripts/test-speaker-clustering.py
 

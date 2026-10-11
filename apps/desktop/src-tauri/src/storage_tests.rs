@@ -1,6 +1,34 @@
 use super::*;
 
 #[test]
+fn post_meeting_engine_works_without_a_streaming_model_or_live_script() {
+    let directory = TestDirectory::new();
+    let engine = directory.0.join("engine");
+    let models = directory.0.join("models");
+    fs::create_dir_all(engine.join("python")).unwrap();
+    fs::write(speaker_python(&engine), b"runtime").unwrap();
+    fs::write(speaker_script(&engine), b"script").unwrap();
+    fs::write(speaker_marker(&engine), SPEAKER_ENGINE_VERSION).unwrap();
+    for model in ["SeacoParaformer", "FsmnVADStreaming", "CTTransformer", "CAMPPlus"] {
+        let path = models.join(model);
+        fs::create_dir_all(&path).unwrap();
+        fs::write(path.join("config.yaml"), format!("model: {model}\n")).unwrap();
+        fs::write(path.join("model.pt"), b"weights").unwrap();
+    }
+    fs::write(speaker_models_marker(&models), SPEAKER_MODELS_VERSION).unwrap();
+    assert!(speaker_engine_installed(&engine));
+    assert!(speaker_models_ready(&models));
+    assert!(!models.join("realtime-online").exists());
+    let imported = directory.0.join("imported-models");
+    import_funasr_models(&models, &imported).unwrap();
+    assert!(speaker_models_ready(&imported));
+    assert!(!imported.join("realtime-online").exists());
+    assert_eq!(FUNASR_MODEL_REPOS.len(), 4);
+    fs::remove_file(models.join("CAMPPlus/model.pt")).unwrap();
+    assert!(!speaker_models_ready(&models));
+}
+
+#[test]
 fn correcting_roles_preserves_proofread_text_timestamps_and_work_outputs() {
     let directory = TestDirectory::new();
     let db = sample_database(&directory.0.join("roles.sqlite3"));

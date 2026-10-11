@@ -95,7 +95,6 @@ export function SettingsView({
   onClearAiKey,
   onDownloadAsr,
   onInstallSpeaker,
-  onCheckLiveEngine,
   offlineManifest,
   onOpenOfflineFolder,
   onImportOfflineItem,
@@ -132,7 +131,6 @@ export function SettingsView({
   onClearAiKey: () => void;
   onDownloadAsr: () => void;
   onInstallSpeaker: () => void;
-  onCheckLiveEngine: () => void;
   offlineManifest: OfflineInstallManifest | null;
   onOpenOfflineFolder: (id: string) => void;
   onImportOfflineItem: (id: string, kind: string) => void;
@@ -255,8 +253,8 @@ export function SettingsView({
     }
   };
   const cloud = asrEngine.provider === "cloud";
-  const realtimeReady = speakerStatus.installed && speakerStatus.modelsReady;
-  const transcriptionReady = cloud ? asrEngine.cloudKeySaved : realtimeReady;
+  const postMeetingReady = speakerStatus.installed && speakerStatus.modelsReady;
+  const transcriptionReady = cloud ? asrEngine.cloudKeySaved : postMeetingReady || (asrStatus.installed && asrStatus.runtimeAvailable);
   const lastBackup = backups.find((backup) => backup.isValid);
   const presetValue =
     CLOUD_ASR_PRESETS.find(
@@ -363,16 +361,18 @@ export function SettingsView({
             <div className="settings-status-grid">
               <StatusCard
                 icon={Mic}
-                title="实时字幕"
+                title="会后转写"
                 value={transcriptionReady ? "可以使用" : "需要准备"}
                 detail={
                   cloud
                     ? asrEngine.cloudKeySaved
                       ? "当前使用云端转写"
                       : "云端密钥尚未保存"
-                    : realtimeReady
-                      ? "本地实时引擎已就绪"
-                      : "请先安装或修复实时引擎"
+                    : postMeetingReady
+                      ? "本地会议引擎已就绪"
+                      : asrStatus.installed && asrStatus.runtimeAvailable
+                        ? "轻量转写已就绪；区分发言人需安装会议引擎"
+                      : "请先安装或修复会后引擎"
                 }
                 ready={transcriptionReady}
                 onClick={() => selectSection("transcription")}
@@ -500,7 +500,7 @@ export function SettingsView({
             <section className="settings-card settings-action-card">
               <div>
                 <h3>首次使用检查</h3>
-                <p>重新检查录音权限、存储空间和实时转写模型。</p>
+                <p>重新检查录音权限、存储空间和会后转写配置。</p>
               </div>
               <button className="secondary-button" onClick={onOpenOnboarding}>
                 <Stethoscope size={16} />
@@ -574,13 +574,13 @@ export function SettingsView({
               <>
                 <section className="settings-card ai-settings local-meeting-engine">
                   <div>
-                    <h3>本地实时字幕</h3>
+                    <h3>会后转写与发言人区分</h3>
                     <p>
-                      会议中快速出字，停顿后自动精校；会议结束后再进行完整校正和说话人区分。
+                      录音结束后生成完整原文并区分发言人；也可导入已有录音进行整理。
                     </p>
                   </div>
-                  <span className={`ai-status ${realtimeReady ? "ready" : ""}`}>
-                    {realtimeReady
+                  <span className={`ai-status ${postMeetingReady ? "ready" : ""}`}>
+                    {postMeetingReady
                       ? "可以使用"
                       : speakerStatus.installed
                         ? "模型不完整"
@@ -601,23 +601,9 @@ export function SettingsView({
                       )}
                       {processing === "installingSpeaker"
                         ? "正在准备"
-                        : realtimeReady
+                        : postMeetingReady
                           ? "检查并修复"
-                          : "安装实时字幕"}
-                    </button>
-                    <button
-                      className="secondary-button"
-                      disabled={processing !== null || !realtimeReady}
-                      onClick={onCheckLiveEngine}
-                    >
-                      {processing === "checkingLiveEngine" ? (
-                        <LoaderCircle className="spin" size={16} />
-                      ) : (
-                        <CheckCircle2 size={16} />
-                      )}
-                      {processing === "checkingLiveEngine"
-                        ? "正在自检"
-                        : "运行自检"}
+                          : "安装会议引擎"}
                     </button>
                   </div>
                 </section>
@@ -662,7 +648,7 @@ export function SettingsView({
                     <h3>轻量会后转写</h3>
                     <p>
                       占用资源较少，适合配置一般的 Windows
-                      电脑，也可作为实时字幕不可用时的备用方案。
+                      电脑，也可作为轻量会后转写方案。
                     </p>
                   </div>
                   <span
@@ -828,7 +814,7 @@ export function SettingsView({
           <>
             <SettingsHeading
               title="智能纪要"
-              description="这是可选功能。未配置时，录音、实时字幕和会后转写仍然可以正常使用。"
+              description="这是可选功能。未配置时，录音和会后转写仍然可以正常使用。"
             />
             <section className="settings-card ai-settings">
               <div>
@@ -1043,7 +1029,7 @@ export function SettingsView({
                 <h3>故障诊断</h3>
                 <p>
                   导出的诊断信息不包含录音、转写正文和 API
-                  密钥，可用于排查实时字幕或升级问题。
+                  密钥，可用于排查会后转写或升级问题。
                 </p>
               </div>
               <button

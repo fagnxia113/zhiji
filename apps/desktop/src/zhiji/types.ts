@@ -56,7 +56,7 @@ export function statusTone(status: string): StatusTone {
   }
 }
 
-// 实时初稿：实时字幕先行、会后还需用高精度引擎校正的会议。
+// 兼容旧版保存的实时初稿；新录音仅生成会后转写。
 export function isLiveDraft(status: string): boolean {
   return status === MeetingStatus.LiveTranscribed;
 }
@@ -159,33 +159,10 @@ export type RecordingSessionStatus = {
   microphoneLabel: string;
   captureSystemAudio: boolean;
   warning: string;
-  liveEnabled: boolean;
-  liveSource: "microphone" | "microphone+system" | "none";
 };
 
 export type BeginRecordingResult = {
-  liveEnabled: boolean;
-  liveSource: "microphone" | "microphone+system" | "none";
   warning: string | null;
-};
-
-export type LiveTranscriptState = {
-  meetingId: string;
-  sessionId: string;
-  lastSequence: number;
-  phase: "idle" | "starting" | "running" | "recovering" | "degraded" | "finished";
-  ready: boolean;
-  text: string;
-  partial: string;
-  partialId: string;
-  partialSource: string;
-  segments: SpeakerSegment[];
-  warning: string;
-  listeningSources: string[];
-  microphoneLevel: number;
-  systemLevel: number;
-  qualityState: "loading" | "ready" | "fallback";
-  refiningCount: number;
 };
 
 export type RecordingFinalizeResult = {
@@ -258,7 +235,6 @@ export type Processing =
   | "regeneratingTasks"
   | "renaming"
   | "installingSpeaker"
-  | "checkingLiveEngine"
   | "speakerTranscribing"
   | "speakerCorrecting"
   | "importing"
