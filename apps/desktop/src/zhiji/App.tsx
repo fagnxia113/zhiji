@@ -1637,6 +1637,7 @@ export function App() {
             onInstallSpeaker={() => void installSpeakerEngine()}
             onOpenSettings={() => setView("settings")}
             onWeeklyReport={() => setWeeklyReportOpen(true)}
+            onProject={openProject}
           />
         )}
         {view === "journal" && <WorkJournal workspace={workspace} targetEntry={entryTarget} onClearTarget={() => setEntryTarget(undefined)} onProjects={openProject} onMeeting={id => { const m = workspace.meetings.find(m => m.id === id); if (m) { void selectMeeting(m); setView("meetings"); } }} />}

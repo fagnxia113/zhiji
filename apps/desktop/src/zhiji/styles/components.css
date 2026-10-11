@@ -1493,7 +1493,7 @@ button.task-source.icon-only { display: inline-flex; align-items: center; justif
   position: sticky;
   top: 0;
   z-index: 12;
-  min-height: var(--meeting-header-h);
+  min-height: 82px;
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -1505,6 +1505,11 @@ button.task-source.icon-only { display: inline-flex; align-items: center; justif
 .meeting-title-block { min-width: 0; flex: 1; }
 .meeting-title-block .title-input { width: min(680px, 100%); font-size: 20px; }
 .meeting-title-block .meeting-meta { margin-top: 6px; }
+.meeting-project { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 5px; font-size: 12px; min-width: 0; }
+.meeting-project label { display: flex; align-items: center; gap: 7px; min-width: 0; white-space: nowrap; }
+.meeting-project select { width: min(230px, 40vw); min-width: 0; padding: 2px 6px; font-size: 12px; border: 1px solid var(--border-default); border-radius: 5px; color: inherit; background: var(--bg-surface); }
+.meeting-project .ghost-button { padding: 2px 5px; font-size: 12px; }
+.meeting-project [role="alert"] { color: var(--danger-fg); overflow-wrap: anywhere; }
 .meeting-header-actions { display: flex; align-items: center; gap: var(--space-2); }
 .meeting-header-actions .autosave-hint { margin: 0 var(--space-1) 0 0; }
 .meeting-action-menu { display: grid; min-width: 210px; }

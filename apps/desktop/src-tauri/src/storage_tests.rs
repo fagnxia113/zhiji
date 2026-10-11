@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::Value;
 
 fn themed_database(path: &Path) -> Connection {
     let db=sample_database(path);
@@ -39,6 +40,59 @@ fn projects_can_cross_themes_without_copying_work_and_failed_assignment_is_atomi
     assert_eq!(themes::ids(&db,"p").unwrap(),vec!["sea"]);
     assert_eq!(text_value(&db,"SELECT content FROM work_entries WHERE id='ep'"),"ep 已提交等待反馈");
     assert!(workbench::dispatch_db(&db,"save_theme",&json!({"id":"duplicate","name":" 出海 "})).is_err());
+}
+
+#[test]
+fn primary_meeting_project_exposes_original_activity_files_and_reassignment_preserves_shared_links() {
+    let dir=TestDirectory::new(); let db=themed_database(&dir.0.join("meeting-project.sqlite3"));
+    db.execute("DELETE FROM activity_projects WHERE project_id='p'",[]).unwrap();
+    assert!(project_hub::load(&db,Some("p")).unwrap()["activities"].as_array().unwrap().is_empty());
+    let link=|project: Option<&str>| workbench::dispatch_db(&db,"link_project",&json!({"entityType":"meeting","entityId":"meeting","projectId":project}));
+    link(Some("p")).unwrap();
+    let ctx=workbench::dispatch_db(&db,"get_project_context",&json!({"projectId":"p"})).unwrap();
+    assert_eq!(ctx["meetings"].as_array().unwrap().len(),1);
+    assert_eq!(ctx["projectHub"]["activities"].as_array().unwrap().len(),1);
+    assert_eq!(ctx["projectHub"]["resources"][0]["id"],"shared-file");
+    assert_eq!(ctx["projectHub"]["activityLinks"].as_array().unwrap().len(),1);
+    assert!(link(Some("missing")).is_err());
+    assert_eq!(text_value(&db,"SELECT project_id FROM project_links WHERE entity_type='meeting'"),"p");
+    link(Some("r")).unwrap();
+    assert!(project_hub::load(&db,Some("p")).unwrap()["resources"].as_array().unwrap().is_empty());
+    let ctx=workbench::dispatch_db(&db,"get_project_context",&json!({"themeId":"other"})).unwrap();
+    assert_eq!(ctx["projectHub"]["resources"][0]["id"],"shared-file");
+    assert_eq!(project_hub::load(&db,Some("q")).unwrap()["activities"].as_array().unwrap().len(),1);
+    link(None).unwrap();
+    assert!(project_hub::load(&db,Some("r")).unwrap()["resources"].as_array().unwrap().is_empty());
+    assert_eq!(project_hub::load(&db,Some("q")).unwrap()["activities"].as_array().unwrap().len(),1);
+    assert_eq!(db.query_row("SELECT count(*) FROM meetings",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+    assert_eq!(db.query_row("SELECT count(*) FROM resources",[],|r|r.get::<_,i64>(0)).unwrap(),2);
+}
+
+#[test]
+fn project_folder_validates_without_moving_files_and_survives_backup_and_legacy_restore() {
+    let dir=TestDirectory::new(); let mut db=themed_database(&dir.0.join("folder.sqlite3"));
+    let folder=dir.0.join("项目资料"); fs::create_dir_all(&folder).unwrap();
+    let file=folder.join("报告.docx"); fs::write(&file,b"original").unwrap();
+    let set=|db: &Connection,path: Value| workbench::dispatch_db(db,"set_project_folder",&json!({"projectId":"p","path":path}));
+    set(&db,json!(folder.to_string_lossy())).unwrap();
+    let path=text_value(&db,"SELECT path FROM project_folders WHERE project_id='p'");
+    assert!(set(&db,json!(file.to_string_lossy())).is_err());
+    assert!(set(&db,json!(folder.join("missing").to_string_lossy())).is_err());
+    assert!(workbench::dispatch_db(&db,"set_project_folder",&json!({"projectId":"p"})).is_err());
+    assert_eq!(text_value(&db,"SELECT path FROM project_folders WHERE project_id='p'"),path);
+    workbench::dispatch_db(&db,"save_project",&json!({"id":"p","name":"已改名","archived":true})).unwrap();
+    assert_eq!(workbench::dispatch_db(&db,"list_projects",&json!({"projectId":"p"})).unwrap()[0]["folderPath"],path);
+    let backup=create_backup_snapshot(&db,&dir.0.join("backups")).unwrap();
+    set(&db,Value::Null).unwrap();
+    assert_eq!(fs::read(&file).unwrap(),b"original");
+    restore_database_backup(&mut db,&dir.0.join("backups"),&backup.file_name).unwrap();
+    assert_eq!(text_value(&db,"SELECT path FROM project_folders WHERE project_id='p'"),path);
+    db.execute_batch("DROP TABLE project_folders;").unwrap();
+    let legacy=create_backup_snapshot(&db,&dir.0.join("legacy")).unwrap();
+    initialize_database(&db).unwrap(); set(&db,json!(folder.to_string_lossy())).unwrap();
+    restore_database_backup(&mut db,&dir.0.join("legacy"),&legacy.file_name).unwrap();
+    assert!(workbench::dispatch_db(&db,"list_projects",&json!({"projectId":"p"})).unwrap()[0]["folderPath"].is_null());
+    assert_eq!(fs::read(&file).unwrap(),b"original");
 }
 
 #[test]

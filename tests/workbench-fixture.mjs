@@ -32,9 +32,17 @@ export function installFixture({ failStartup = false, failSettings = false, empt
   const hub = { activities: [], resources: [], activityLinks: [], resourceLinks: [], resourceActivities: [], profiles: [] };
   const entryHistory = [];
   window.__fixture.hub = hub;
+  const effectiveActivityLinks = () => {
+    const links = [...hub.activityLinks];
+    for (const a of hub.activities) {
+      const projectId = work.links[`meeting:${a.meetingId}`];
+      if (projectId && !links.some(l => l.activityId === a.id && l.projectId === projectId)) links.push({ activityId: a.id, projectId });
+    }
+    return links;
+  };
   const visibleHub = (projectId) => {
-    if (!projectId) return structuredClone(hub);
-    const activityLinks = hub.activityLinks.filter(l => l.projectId === projectId);
+    if (!projectId) return structuredClone({ ...hub, activityLinks: effectiveActivityLinks() });
+    const activityLinks = effectiveActivityLinks().filter(l => l.projectId === projectId);
     const activities = hub.activities.filter(a => activityLinks.some(l => l.activityId === a.id));
     const resourceLinks = hub.resourceLinks.filter(l => l.projectId === projectId);
     const resourceActivities = hub.resourceActivities.filter(l => activities.some(a => a.id === l.activityId));
@@ -68,7 +76,7 @@ export function installFixture({ failStartup = false, failSettings = false, empt
         if(args.action==="list_projects") return structuredClone(work.projects.filter(p=>matches(p.id)));
         if(args.action==="save_theme") { if(window.__fixture.failTheme) throw Error("测试：主题保存失败"); const same=work.themes.find(t=>t.id!==a.id && t.name===a.name.trim()); if(same) throw Error("已有同名主题"); const t=work.themes.find(t=>t.id===a.id); if(t) t.name=a.name.trim(); else work.themes.push({...a,name:a.name.trim(),createdAt:new Date().toISOString()}); return structuredClone(work.themes.find(t=>t.id===a.id)); }
         if(args.action==="save_project_themes") { if(window.__fixture.failTheme) throw Error("测试：主题关联失败"); const p=work.projects.find(p=>p.id===a.projectId); if(a.expectedThemeIds && JSON.stringify([...a.expectedThemeIds].sort())!==JSON.stringify([...(p.themeIds || [])].sort())) throw Error("项目主题已在其他位置修改"); p.themeIds=[...new Set(a.themeIds)]; return structuredClone(p.themeIds); }
-        if(args.action==="get_project_context") { if(window.__fixture.failThemeContext) throw Error("测试：主题读取失败"); const activityLinks=hub.activityLinks.filter(l=>matches(l.projectId)); const activities=hub.activities.filter(x=>activityLinks.some(l=>l.activityId===x.id)); const resourceLinks=hub.resourceLinks.filter(l=>matches(l.projectId)); const resourceActivities=hub.resourceActivities.filter(l=>activities.some(x=>x.id===l.activityId)); return structuredClone({projects:work.projects.filter(p=>matches(p.id)),entries:work.entries.filter(e=>matches(e.projectId)),followups:{entries:work.entries.filter(e=>matches(e.projectId)&&e.status==="waiting"),tasks:workspace.tasks.filter(t=>!t.completed&&matches(work.links[`task:${t.id}`] || work.links[`meeting:${t.sourceId}`]))},tasks:workspace.tasks.filter(t=>matches(work.links[`task:${t.id}`] || work.links[`meeting:${t.sourceId}`])),meetings:workspace.meetings.filter(meetingMatches),projectHub:{...hub,activityLinks,activities,resourceLinks,resourceActivities,profiles:hub.profiles.filter(p=>matches(p.projectId)),resources:hub.resources.filter(r=>[...resourceLinks,...resourceActivities].some(l=>l.resourceId===r.id))}}); }
+        if(args.action==="get_project_context") { if(window.__fixture.failThemeContext) throw Error("测试：主题读取失败"); const activityLinks=effectiveActivityLinks().filter(l=>matches(l.projectId)); const activities=hub.activities.filter(x=>activityLinks.some(l=>l.activityId===x.id)); const resourceLinks=hub.resourceLinks.filter(l=>matches(l.projectId)); const resourceActivities=hub.resourceActivities.filter(l=>activities.some(x=>x.id===l.activityId)); return structuredClone({projects:work.projects.filter(p=>matches(p.id)),entries:work.entries.filter(e=>matches(e.projectId)),followups:{entries:work.entries.filter(e=>matches(e.projectId)&&e.status==="waiting"),tasks:workspace.tasks.filter(t=>!t.completed&&matches(work.links[`task:${t.id}`] || work.links[`meeting:${t.sourceId}`]))},tasks:workspace.tasks.filter(t=>matches(work.links[`task:${t.id}`] || work.links[`meeting:${t.sourceId}`])),meetings:workspace.meetings.filter(meetingMatches),projectHub:{...hub,activityLinks,activities,resourceLinks,resourceActivities,profiles:hub.profiles.filter(p=>matches(p.projectId)),resources:hub.resources.filter(r=>[...resourceLinks,...resourceActivities].some(l=>l.resourceId===r.id))}}); }
         if (args.action === "load_project_hub") { if (window.__fixture.failHub && a.projectId) throw Error("测试：项目读取失败"); if (window.__fixture.failCatalog && !a.projectId) throw Error("测试：目录读取失败"); return visibleHub(a.projectId); }
         if (args.action === "save_project_profile") { const i=hub.profiles.findIndex(p=>p.projectId===a.projectId); if(i<0) hub.profiles.push(a); else hub.profiles[i]=a; if(window.__fixture.failHubAfterWrite) window.__fixture.failHub=true; return true; }
         if (args.action === "save_activity") { if(window.__fixture.failActivity) throw Error("测试：活动保存失败"); hub.activities.push({...a,meetingId:a.meetingId||null}); hub.activityLinks.push({activityId:a.id,projectId:a.projectId}); return true; }
@@ -93,7 +101,9 @@ export function installFixture({ failStartup = false, failSettings = false, empt
           return structuredClone(entry);
         }
         if (args.action === "save_project") { const i = work.projects.findIndex(p => p.id === a.id); if (i < 0) work.projects.push({...a,themeIds:[]}); else work.projects[i] = {...work.projects[i],...a}; return structuredClone(work.projects); }
-        if (args.action === "link_project") { if (a.projectId) work.links[`${a.entityType}:${a.entityId}`] = a.projectId; else delete work.links[`${a.entityType}:${a.entityId}`]; return structuredClone(work.links); }
+        if (args.action === "link_project") { if(window.__fixture.failMeetingProject) throw Error("测试：项目关联失败"); if (a.projectId) work.links[`${a.entityType}:${a.entityId}`] = a.projectId; else delete work.links[`${a.entityType}:${a.entityId}`]; return structuredClone(work.links); }
+        if (args.action === "set_project_folder") { if(window.__fixture.failFolder) throw Error("测试：文件夹关联失败"); work.projects.find(p=>p.id===a.projectId).folderPath=a.path; return true; }
+        if (args.action === "open_project_folder") { if(window.__fixture.failFolder) throw Error("项目文件夹不存在或无法访问，请重新选择文件夹"); return true; }
         if (args.action === "report_material") return material();
         if (args.action === "list_reports") return structuredClone(reports);
         if (args.action === "generate_report") {

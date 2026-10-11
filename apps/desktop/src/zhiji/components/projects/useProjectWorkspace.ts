@@ -120,6 +120,7 @@ export function useProjectWorkspace({ project, workspace, entries = [], projectL
   const selectedLink = links.find(l => l.resourceId === selectedResource?.id);
   const recent = entries.filter(e => e.projectId === project.id).sort((a, b) => b.occurredOn.localeCompare(a.occurredOn) || b.updatedAt.localeCompare(a.updatedAt));
   const meetingIds = new Set(hub.activities.flatMap(a => a.meetingId ? [a.meetingId] : []));
+  const directMeetings = workspace.meetings.filter(m => projectLinks[`meeting:${m.id}`] === project.id && !meetingIds.has(m.id)).sort((a,b) => b.startedAt.localeCompare(a.startedAt));
   const tasks = workspace.tasks.filter(t => !t.completed && (projectLinks[`task:${t.id}`] || (t.sourceType === "meeting" ? projectLinks[`meeting:${t.sourceId}`] || (meetingIds.has(t.sourceId || "") ? project.id : "") : "")) === project.id);
   const changeTab = (tab: HubTab) => {
     const scroller = hubElement.current?.closest<HTMLElement>(".main-content");
@@ -136,7 +137,7 @@ export function useProjectWorkspace({ project, workspace, entries = [], projectL
   };
   const disabled = busy || loading || !ready;
   const attach = () => perform(async () => {
-    const paths = await open({ multiple: true, directory: false, title: "关联本地资料", filters: [{ name: "工作资料", extensions: ["docx","doc","pdf","pptx","ppt","xlsx","xls","txt","md","rtf","csv","png","jpg","jpeg","wav","mp3","m4a","mp4"] }] });
+    const paths = await open({ multiple: true, directory: false, title: "关联本地资料", defaultPath: project.folderPath || undefined, filters: [{ name: "工作资料", extensions: ["docx","doc","pdf","pptx","ppt","xlsx","xls","txt","md","rtf","csv","png","jpg","jpeg","wav","mp3","m4a","mp4"] }] });
     if (!paths) return false;
     let count = 0;
     try {
@@ -148,6 +149,14 @@ export function useProjectWorkspace({ project, workspace, entries = [], projectL
     setNotice(`已关联 ${count} 份资料，原文件位置保持不变`);
   });
   const saveProfile = () => perform(async () => { await workbenchCall("save_project_profile", { projectId: project.id, goal, stage }); profileDirty.current = false; try { localStorage.removeItem(profileKey); } catch { setCacheError("目标已保存，但旧草稿缓存未能清除。"); } setNotice("项目目标已保存"); });
+  const chooseFolder = () => perform(async () => {
+    const path = await open({ multiple: false, directory: true, title: "选择项目资料文件夹", defaultPath: project.folderPath || undefined });
+    if (typeof path !== "string") return false;
+    await workbenchCall("set_project_folder", { projectId: project.id, path });
+    setNotice("项目文件夹已关联");
+  });
+  const openFolder = () => perform(async () => { await workbenchCall("open_project_folder", { projectId: project.id }); }, false);
+  const unlinkFolder = () => perform(async () => { await workbenchCall("set_project_folder", { projectId: project.id, path: null }); setNotice("文件夹关联已解除，已登记资料保留"); });
   const saveActivity = () => perform(async () => { await workbenchCall("save_activity", { id: activityDraftId, projectId: project.id, title, kind, occurredOn: activityDay, meetingId: meetingId || null }); if (!content.trim()) { setActivityId(activityDraftId); setOutputId(""); } setView(v => ({ ...v, tab: "resources", fileActivityId: activityDraftId, resourceId: "", fileQuery: "", listScroll: "0" })); setAddingActivity(false); setActivityDraftId(crypto.randomUUID()); setTitle(""); setMeetingId(""); setNotice("活动已保存，可以添加本次资料和进展"); });
   const saveProgress = () => perform(async () => {
       await workbenchCall("capture_work",{id:entryId,content,kind:progressStatus==="done"?"achievement":"progress",status:progressStatus,occurredOn:progressDay,projectId:project.id,sourceLabel:"项目进展",activityId:activityId||null,resourceId:outputId||null});
@@ -170,6 +179,6 @@ export function useProjectWorkspace({ project, workspace, entries = [], projectL
     else { setActivityId(id); setOutputId(""); }
     progressAction();
   };
-  return { project, workspace, onMeeting, hub, catalog, ready, loading, busy, error, notice, catalogReady, catalogLoading, catalogError, setError, setNotice, reload, loadCatalog, perform, retry, cacheError, goal, stage, profileDirty, profileKey, setGoal, setStage, activityId, setActivityId, title, setTitle, kind, setKind, activityDay, setActivityDay, meetingId, setMeetingId, existingActivity, setExistingActivity, resourceId, setResourceId, role, setRole, view, setView, resourceList, hubElement, tabButtons, editingProfile, setEditingProfile, addingActivity, setAddingActivity, addingResource, setAddingResource, content, setContent, progressDay, setProgressDay, progressStatus, setProgressStatus, outputId, setOutputId, entryId, activityDraftId, focused, setFocused, progressDetails, setProgressDetails, progressOptions, progressDateChosen, editorPosition, scope, links, visible, searched, selectedResource, selectedLink, recent, tasks, changeTab, progressAction, progressInput, toggleFocus, disabled, attach, saveProfile, saveActivity, saveProgress, toggleArchive, linkExistingActivity, reuseResource, openSelected, relocateSelected, unlinkSelected, recordResource, recordActivity };
+  return { project, workspace, onMeeting, hub, catalog, ready, loading, busy, error, notice, catalogReady, catalogLoading, catalogError, setError, setNotice, reload, loadCatalog, perform, retry, cacheError, goal, stage, profileDirty, profileKey, setGoal, setStage, activityId, setActivityId, title, setTitle, kind, setKind, activityDay, setActivityDay, meetingId, setMeetingId, existingActivity, setExistingActivity, resourceId, setResourceId, role, setRole, view, setView, resourceList, hubElement, tabButtons, editingProfile, setEditingProfile, addingActivity, setAddingActivity, addingResource, setAddingResource, content, setContent, progressDay, setProgressDay, progressStatus, setProgressStatus, outputId, setOutputId, entryId, activityDraftId, focused, setFocused, progressDetails, setProgressDetails, progressOptions, progressDateChosen, editorPosition, scope, links, visible, searched, selectedResource, selectedLink, recent, tasks, directMeetings, chooseFolder, openFolder, unlinkFolder, changeTab, progressAction, progressInput, toggleFocus, disabled, attach, saveProfile, saveActivity, saveProgress, toggleArchive, linkExistingActivity, reuseResource, openSelected, relocateSelected, unlinkSelected, recordResource, recordActivity };
 }
 export type ProjectWorkspace = ReturnType<typeof useProjectWorkspace>;

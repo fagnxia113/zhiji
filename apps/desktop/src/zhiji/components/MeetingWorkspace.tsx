@@ -1,5 +1,6 @@
 import { Check, CheckCircle2, ChevronRight, Columns2, Copy, FileAudio, FileDown, FolderOpen, LoaderCircle, MessageCircleQuestion, Mic, MoreHorizontal, Play, Plus, RefreshCw, Sparkles, StickyNote, Trash2, Upload, Wand2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { MeetingProject } from "./MeetingProject";
 import type { AsrEngineSettings, RecordingSessionStatus, LocalAsrStatus, Meeting, Processing, SpeakerEngineStatus, SpeakerSegment, Task } from "../types";
 import { MeetingStatus, isLiveDraft } from "../types";
 import { meetingJourney } from "../workflow";
@@ -73,6 +74,7 @@ export function MeetingWorkspace({
   onOpenSettings,
   onRenameSpeaker,
   onWeeklyReport,
+  onProject,
 }: {
   meetings: Meeting[];
   meeting: Meeting | null;
@@ -113,8 +115,19 @@ export function MeetingWorkspace({
   onOpenSettings: () => void;
   onRenameSpeaker: (speakerId: number, name: string) => void;
   onWeeklyReport: () => void;
+  onProject?: (id: string) => void;
 }) {
   const busy = processing !== null || backgroundBusy;
+  const header = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const element = header.current;
+    if (!element) return;
+    const measure = () => element.parentElement?.style.setProperty("--meeting-header-h", `${element.getBoundingClientRect().height}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [meeting?.id]);
   // 音文联动：seekRequest 用于点击说话人段落后跳转音频时间，currentMs 用于高亮当前播放段落
   const [seekRequest, setSeekRequest] = useState<{ time: number; nonce: number } | null>(null);
   const [currentMs, setCurrentMs] = useState(-1);
@@ -445,7 +458,7 @@ export function MeetingWorkspace({
       <main className="meeting-detail">
         {meeting ? (
           <>
-            <header className="meeting-detail-header">
+            <header className="meeting-detail-header" ref={header}>
               <button className="back-to-list" onClick={() => onSelect(null)}>← 会议</button>
               <div className="meeting-title-block">
                 <input
@@ -459,6 +472,7 @@ export function MeetingWorkspace({
                   <StatusDot status={meeting.status} />
                   <span>{recording ? "会议进行中" : meeting.minutes.trim() ? "纪要已生成" : meeting.transcript.trim() ? "等待整理" : "会前准备"}</span>
                 </div>
+                <MeetingProject key={meeting.id} meetingId={meeting.id} disabled={recording || recordingFinalizing} onProject={onProject} />
               </div>
               <div className="meeting-header-actions">
                 {autoSaveHint && <small className="autosave-hint">{autoSaveHint}</small>}

@@ -158,6 +158,10 @@
 .theme-overview article small { color: var(--text-muted); }
 .theme-overview section[aria-label="主题会议与资料"] > button { display: block; text-align: left; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .hub-resource-options { border: 0; border-top: 1px solid var(--border-subtle); border-radius: 0; padding-inline: 0; margin-top: 20px; }
+.hub-project-folder { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; margin-block: 8px 12px; }
+.hub-project-folder > details { flex: 1; min-width: 160px; font-size: 12px; }
+.hub-project-folder summary { cursor: pointer; color: var(--text-muted); }
+.hub-project-folder .hub-path { margin-block: 8px; overflow-wrap: anywhere; }
 @container project-hub (max-width: 480px) { .capture-fields.form-grid { grid-template-columns: minmax(0, 1fr); } }
 @container project-hub (max-width: 680px) {
   .hub-resources-panel.has-selection .hub-resource-toolbar, .hub-resources-panel.has-selection .hub-resource-options { display: none; }

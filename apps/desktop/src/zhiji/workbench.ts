@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
 import { createWorkbenchStore } from "./workbench/store";
 
 export type Theme = { id: string; name: string; createdAt: string };
-export type Project = { id: string; name: string; archived: boolean; createdAt: string; themeIds?: string[] };
+export type Project = { id: string; name: string; archived: boolean; createdAt: string; themeIds?: string[]; folderPath?: string | null };
 export type WorkEntry = { id: string; content: string; kind: string; status: string; occurredOn: string; projectId: string | null; sourceLabel: string; createdAt: string; updatedAt: string };
 export type WorkbenchData = { projects: Project[]; themes?: Theme[]; entries: WorkEntry[]; links: Record<string, string> };
 export type ReportSource = { id: string; sourceType: string; title: string; date: string; projectId: string | null; content: string };

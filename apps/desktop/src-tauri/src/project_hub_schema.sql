@@ -1,4 +1,8 @@
 SAVEPOINT project_hub_migration;
+CREATE TABLE IF NOT EXISTS project_folders (
+  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  path TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS project_profiles (
   project_id TEXT PRIMARY KEY REFERENCES projects(id), goal TEXT NOT NULL, stage TEXT NOT NULL
 );

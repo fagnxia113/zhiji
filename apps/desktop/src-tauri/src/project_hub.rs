@@ -4,6 +4,7 @@ use rusqlite::OptionalExtension;
 use serde_json::Value;
 
 pub(super) const TABLES: &[(&str, &str)] = &[
+    ("project_folders", "project_id,path"),
     ("project_profiles", "project_id,goal,stage"),
     ("activities", "id,title,kind,occurred_on,meeting_id,created_at"),
     ("activity_projects", "activity_id,project_id"),
@@ -45,11 +46,14 @@ pub(super) fn atomic<T>(db: &Connection, f: impl FnOnce() -> Result<T, String>) 
 
 pub(super) fn load(db: &Connection, project: Option<&str>) -> Result<Value, String> {
     if let Some(pid) = project { exists(db, "projects", pid)?; }
-    let activities = rows(db, "SELECT json_object('id',a.id,'title',a.title,'kind',a.kind,'occurredOn',a.occurred_on,'meetingId',a.meeting_id) FROM activities a WHERE ?1 IS NULL OR EXISTS(SELECT 1 FROM activity_projects p WHERE p.activity_id=a.id AND p.project_id=?1) ORDER BY a.occurred_on DESC,a.id", project)?;
-    let resources = rows(db, "SELECT json_object('id',r.id,'title',r.title,'path',r.path,'sizeBytes',r.size_bytes,'modifiedAt',r.modified_at,'contentStatus','metadata_only') FROM resources r WHERE ?1 IS NULL OR EXISTS(SELECT 1 FROM resource_projects p WHERE p.resource_id=r.id AND p.project_id=?1) OR EXISTS(SELECT 1 FROM resource_activities x JOIN activity_projects p ON p.activity_id=x.activity_id WHERE x.resource_id=r.id AND p.project_id=?1) ORDER BY r.title,r.id", project)?;
-    let activity_links = rows(db, "SELECT json_object('activityId',activity_id,'projectId',project_id) FROM activity_projects WHERE ?1 IS NULL OR project_id=?1", project)?;
+    // A meeting's primary project exposes the same activity and files. Derived links
+    // disappear on reassignment; explicit cross-project activity links remain intact.
+    let related = "WITH related(activity_id,project_id) AS (SELECT activity_id,project_id FROM activity_projects UNION SELECT a.id,p.project_id FROM activities a JOIN project_links p ON p.entity_type='meeting' AND p.entity_id=a.meeting_id)";
+    let activities = rows(db, &format!("{related} SELECT json_object('id',a.id,'title',a.title,'kind',a.kind,'occurredOn',a.occurred_on,'meetingId',a.meeting_id) FROM activities a WHERE ?1 IS NULL OR EXISTS(SELECT 1 FROM related p WHERE p.activity_id=a.id AND p.project_id=?1) ORDER BY a.occurred_on DESC,a.id"), project)?;
+    let resources = rows(db, &format!("{related} SELECT json_object('id',r.id,'title',r.title,'path',r.path,'sizeBytes',r.size_bytes,'modifiedAt',r.modified_at,'contentStatus','metadata_only') FROM resources r WHERE ?1 IS NULL OR EXISTS(SELECT 1 FROM resource_projects p WHERE p.resource_id=r.id AND p.project_id=?1) OR EXISTS(SELECT 1 FROM resource_activities x JOIN related p ON p.activity_id=x.activity_id WHERE x.resource_id=r.id AND p.project_id=?1) ORDER BY r.title,r.id"), project)?;
+    let activity_links = rows(db, &format!("{related} SELECT json_object('activityId',activity_id,'projectId',project_id) FROM related WHERE ?1 IS NULL OR project_id=?1"), project)?;
     let file_links = rows(db, "SELECT json_object('resourceId',resource_id,'projectId',project_id,'role',role) FROM resource_projects WHERE ?1 IS NULL OR project_id=?1", project)?;
-    let file_activities = rows(db, "SELECT json_object('resourceId',r.resource_id,'activityId',r.activity_id,'role',r.role) FROM resource_activities r WHERE ?1 IS NULL OR EXISTS(SELECT 1 FROM activity_projects p WHERE p.activity_id=r.activity_id AND p.project_id=?1)", project)?;
+    let file_activities = rows(db, &format!("{related} SELECT json_object('resourceId',r.resource_id,'activityId',r.activity_id,'role',r.role) FROM resource_activities r WHERE ?1 IS NULL OR EXISTS(SELECT 1 FROM related p WHERE p.activity_id=r.activity_id AND p.project_id=?1)"), project)?;
     let profiles = rows(db, "SELECT json_object('projectId',project_id,'goal',goal,'stage',stage) FROM project_profiles WHERE ?1 IS NULL OR project_id=?1", project)?;
     Ok(json!({"activities":activities,"resources":resources,"activityLinks":activity_links,"resourceLinks":file_links,"resourceActivities":file_activities,"profiles":profiles}))
 }
@@ -111,18 +115,45 @@ fn file_info(path: &str) -> Result<(PathBuf, String, i64, String), String> {
     let modified = metadata.modified().map_err(app_error)?.duration_since(std::time::UNIX_EPOCH).map_err(app_error)?.as_nanos().to_string();
     // Explorer and Office expect ordinary drive/UNC paths, not canonicalize's
     // Windows extended-length prefix. Identity remains based on the resolved path.
+    let path = ordinary_path(&path);
+    Ok((path, title, metadata.len().min(i64::MAX as u64) as i64, modified))
+}
+fn ordinary_path(path: &Path) -> PathBuf {
     let display = path.to_string_lossy();
     let path = if let Some(rest) = display.strip_prefix(r"\\?\UNC\") {
         PathBuf::from(format!(r"\\{rest}"))
     } else if let Some(rest) = display.strip_prefix(r"\\?\") {
         PathBuf::from(rest)
-    } else { path.clone() };
-    Ok((path, title, metadata.len().min(i64::MAX as u64) as i64, modified))
+    } else { path.to_path_buf() };
+    path
+}
+fn folder_path(path: &str) -> Result<PathBuf, String> {
+    let path = fs::canonicalize(path).map_err(|_| "项目文件夹不存在或无法访问，请重新选择文件夹")?;
+    if !path.is_dir() { return Err("请选择文件夹".into()); }
+    Ok(ordinary_path(&path))
 }
 
 pub(super) fn dispatch(db: &Connection, action: &str, a: &Value) -> Result<Value, String> {
     match action {
         "load_project_hub" => load(db, optional(a, "projectId")),
+        "set_project_folder" => {
+            let pid = required(a,"projectId")?; exists(db,"projects",pid)?;
+            if a.get("path").is_none() { return Err("缺少文件夹路径；解除关联请传入 null".into()); }
+            if a["path"].is_null() {
+                db.execute("DELETE FROM project_folders WHERE project_id=?1",[pid]).map_err(app_error)?;
+            } else {
+                let path = folder_path(required(a,"path")?)?.to_string_lossy().into_owned();
+                db.execute("INSERT INTO project_folders VALUES(?1,?2) ON CONFLICT(project_id) DO UPDATE SET path=excluded.path",params![pid,path]).map_err(app_error)?;
+            }
+            Ok(json!(true))
+        }
+        "open_project_folder" => {
+            let pid=required(a,"projectId")?; exists(db,"projects",pid)?;
+            let path: Option<String> = db.query_row("SELECT path FROM project_folders WHERE project_id=?1",[pid],|r|r.get(0)).optional().map_err(app_error)?;
+            let path = folder_path(path.as_deref().ok_or("项目尚未设置文件夹")?)?;
+            reveal_path(&path,false)?;
+            Ok(json!(true))
+        }
         "save_project_profile" => {
             let pid = required(a,"projectId")?; exists(db,"projects",pid)?;
             let goal = a["goal"].as_str().unwrap_or("").trim();

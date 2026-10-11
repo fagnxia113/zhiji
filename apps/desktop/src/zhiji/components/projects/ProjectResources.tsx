@@ -2,6 +2,7 @@ import { focusListItem } from "../ui/keyboardNavigation";
 import { File, FolderOpen, Plus, Search } from "lucide-react";
 import type { ProjectWorkspace } from "./useProjectWorkspace";
 import { roles } from "./model";
+import { ProjectFolder } from "./ProjectFolder";
 
 export function ProjectResources({ model }: { model: ProjectWorkspace }) {
   const { hub, catalog, ready, catalogReady, catalogLoading, loadCatalog, resourceId, setResourceId, role, setRole, view, setView, resourceList, addingResource, setAddingResource, links, searched, selectedResource, selectedLink, disabled, attach, reuseResource, openSelected, relocateSelected, unlinkSelected, recordResource } = model;
@@ -16,6 +17,7 @@ export function ProjectResources({ model }: { model: ProjectWorkspace }) {
         <h3>项目资料 <small>{searched.length} 份</small></h3>
         <button className="primary-button compact-button" disabled={disabled} onClick={() => void attach()}><Plus size={14} />添加资料</button>
       </div>
+      <ProjectFolder model={model} />
       <div className="hub-resource-filters">
         <label className="hub-file-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索项目资料" placeholder="查找文件名或路径" value={view.fileQuery} onChange={e => setView(v => ({ ...v, fileQuery: e.target.value, resourceId: "", listScroll: "0" }))} /></label>
         <select aria-label="资料所属活动" value={view.fileActivityId} disabled={disabled} onChange={e => setView(v => ({ ...v, fileActivityId: e.target.value, resourceId: "", listScroll: "0" }))}>

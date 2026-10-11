@@ -119,6 +119,8 @@ pub(super) struct Project {
     pub created_at: String,
     #[serde(default)]
     pub theme_ids: Vec<String>,
+    #[serde(default)]
+    pub folder_path: Option<String>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -177,12 +179,16 @@ fn projects(db: &Connection) -> Result<Vec<Project>, String> {
             archived: r.get(2)?,
             created_at: r.get(3)?,
             theme_ids: Vec::new(),
+            folder_path: None,
         })
     })
     .map_err(app_error)?
     .collect::<Result<Vec<_>, _>>()
     .map_err(app_error)
-    .and_then(|mut rows: Vec<Project>| { for p in &mut rows { p.theme_ids = themes::ids(db, &p.id)?; } Ok(rows) })
+    .and_then(|mut rows: Vec<Project>| { for p in &mut rows {
+        p.theme_ids = themes::ids(db, &p.id)?;
+        p.folder_path = db.query_row("SELECT path FROM project_folders WHERE project_id=?1",[&p.id],|r|r.get(0)).optional().map_err(app_error)?;
+    } Ok(rows) })
 }
 fn entries(db: &Connection) -> Result<Vec<WorkEntry>, String> {
     let mut s=db.prepare("SELECT id,content,kind,status,occurred_on,project_id,source_label,created_at,updated_at FROM work_entries ORDER BY occurred_on DESC,created_at DESC").map_err(app_error)?;
@@ -707,7 +713,7 @@ pub(super) fn dispatch_db(db: &Connection, action: &str, a: &Value) -> Result<Va
     match action {
         "load_project_hub" | "save_project_profile" | "save_activity" | "link_activity" |
         "register_resource" | "link_resource" | "unlink_resource" | "open_resource" |
-        "reveal_resource" | "relocate_resource" | "entry_history" => project_hub::dispatch(db, action, a),
+        "reveal_resource" | "relocate_resource" | "entry_history" | "set_project_folder" | "open_project_folder" => project_hub::dispatch(db, action, a),
         "load" => Ok(json!({"projects":projects(db)?,"themes":themes::list(db,None)?,"entries":entries(db)?,"links":links(db)?})),
         "list_projects" => {
             let project = a["projectId"].as_str().filter(|s|!s.is_empty());
@@ -860,7 +866,7 @@ pub(super) async fn workbench_call(
     tauri::async_runtime::spawn_blocking(move || {
         let result = dispatch(&app.state::<AppState>(), &action, &args);
         if result.is_ok()
-            && ["save_entry", "capture_work", "save_project", "save_theme", "save_project_themes", "link_project", "save_project_profile", "save_activity", "link_activity", "register_resource", "link_resource", "unlink_resource", "relocate_resource"]
+            && ["save_entry", "capture_work", "save_project", "save_theme", "save_project_themes", "link_project", "set_project_folder", "save_project_profile", "save_activity", "link_activity", "register_resource", "link_resource", "unlink_resource", "relocate_resource"]
                 .contains(&action.as_str())
         {
             let _ = app.emit("zhiji://workbench-changed", ());
