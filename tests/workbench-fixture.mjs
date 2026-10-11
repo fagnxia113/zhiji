@@ -27,7 +27,7 @@ export function installFixture({ failStartup = false, failSettings = false, empt
     { id: "t3", title: "安排下周项目复盘", sourceType: null, sourceId: null, completed: false, dueDate: date(3), createdAt: `${date()}T12:00:00+08:00`, owner: "" },
   ] };
   window.__fixture = { workspace, failStartup, failSettings, failTask: false, calls: [], workCalls: [] };
-  const work = { projects: [], entries: [], links: {} };
+  const work = { projects: [], themes: [], entries: [], links: {} };
   const reports = [];
   const hub = { activities: [], resources: [], activityLinks: [], resourceLinks: [], resourceActivities: [], profiles: [] };
   const entryHistory = [];
@@ -60,9 +60,15 @@ export function installFixture({ failStartup = false, failSettings = false, empt
       if (command === "stop_local_api") { access = { running: false }; return null; }
       if (command === "workbench_call") {
         const a = args.args;
-        const material = () => ({ weekStart: a.weekStart, weekEnd: a.weekStart, warnings: ["团队成果不自动视为个人成果"], sources: work.entries.filter(e => !a.projectId || e.projectId === a.projectId).map(e => ({ id: e.id, sourceType: "entry", title: e.content, date: e.occurredOn, projectId: e.projectId, content: `${e.content} · ${e.status}` })).concat(workspace.meetings.filter(m => !a.projectId || work.links[`meeting:${m.id}`] === a.projectId).map(m => ({ id: m.id, sourceType: "meeting", title: m.title, date: m.startedAt.slice(0, 10), projectId: null, content: m.minutes || m.transcript }))) });
+        const matches = (pid) => (!a.projectId || pid === a.projectId) && (!a.themeId || work.projects.find(p=>p.id===pid)?.themeIds?.includes(a.themeId));
+        const meetingMatches = m => (!a.projectId && !a.themeId) || matches(work.links[`meeting:${m.id}`]) || hub.activities.some(x=>x.meetingId===m.id && hub.activityLinks.some(l=>l.activityId===x.id && matches(l.projectId)));
+        const material = () => ({ weekStart: a.weekStart, weekEnd: a.weekStart, warnings: ["团队成果不自动视为个人成果"], sources: work.entries.filter(e => matches(e.projectId)).map(e => ({ id: e.id, sourceType: "entry", title: e.content, date: e.occurredOn, projectId: e.projectId, content: `${e.content} · ${e.status}` })).concat(workspace.meetings.filter(meetingMatches).map(m => ({ id: m.id, sourceType: "meeting", title: m.title, date: m.startedAt.slice(0, 10), projectId: work.links[`meeting:${m.id}`] || null, content: m.minutes || m.transcript }))) });
         if (args.action === "load") return structuredClone(work);
         window.__fixture.workCalls.push({action:args.action,args:structuredClone(a)});
+        if(args.action==="list_projects") return structuredClone(work.projects.filter(p=>matches(p.id)));
+        if(args.action==="save_theme") { if(window.__fixture.failTheme) throw Error("测试：主题保存失败"); const same=work.themes.find(t=>t.id!==a.id && t.name===a.name.trim()); if(same) throw Error("已有同名主题"); const t=work.themes.find(t=>t.id===a.id); if(t) t.name=a.name.trim(); else work.themes.push({...a,name:a.name.trim(),createdAt:new Date().toISOString()}); return structuredClone(work.themes.find(t=>t.id===a.id)); }
+        if(args.action==="save_project_themes") { if(window.__fixture.failTheme) throw Error("测试：主题关联失败"); const p=work.projects.find(p=>p.id===a.projectId); if(a.expectedThemeIds && JSON.stringify([...a.expectedThemeIds].sort())!==JSON.stringify([...(p.themeIds || [])].sort())) throw Error("项目主题已在其他位置修改"); p.themeIds=[...new Set(a.themeIds)]; return structuredClone(p.themeIds); }
+        if(args.action==="get_project_context") { if(window.__fixture.failThemeContext) throw Error("测试：主题读取失败"); const activityLinks=hub.activityLinks.filter(l=>matches(l.projectId)); const activities=hub.activities.filter(x=>activityLinks.some(l=>l.activityId===x.id)); const resourceLinks=hub.resourceLinks.filter(l=>matches(l.projectId)); const resourceActivities=hub.resourceActivities.filter(l=>activities.some(x=>x.id===l.activityId)); return structuredClone({projects:work.projects.filter(p=>matches(p.id)),entries:work.entries.filter(e=>matches(e.projectId)),tasks:workspace.tasks.filter(t=>matches(work.links[`task:${t.id}`] || work.links[`meeting:${t.sourceId}`])),meetings:workspace.meetings.filter(meetingMatches),projectHub:{...hub,activityLinks,activities,resourceLinks,resourceActivities,profiles:hub.profiles.filter(p=>matches(p.projectId)),resources:hub.resources.filter(r=>[...resourceLinks,...resourceActivities].some(l=>l.resourceId===r.id))}}); }
         if (args.action === "load_project_hub") { if (window.__fixture.failHub && a.projectId) throw Error("测试：项目读取失败"); if (window.__fixture.failCatalog && !a.projectId) throw Error("测试：目录读取失败"); return visibleHub(a.projectId); }
         if (args.action === "save_project_profile") { const i=hub.profiles.findIndex(p=>p.projectId===a.projectId); if(i<0) hub.profiles.push(a); else hub.profiles[i]=a; if(window.__fixture.failHubAfterWrite) window.__fixture.failHub=true; return true; }
         if (args.action === "save_activity") { if(window.__fixture.failActivity) throw Error("测试：活动保存失败"); hub.activities.push({...a,meetingId:a.meetingId||null}); hub.activityLinks.push({activityId:a.id,projectId:a.projectId}); return true; }
@@ -86,7 +92,7 @@ export function installFixture({ failStartup = false, failSettings = false, empt
           entryHistory.push({sequence:entryHistory.length+1,recordedAt:new Date().toISOString(),entry:structuredClone(entry)});
           return structuredClone(entry);
         }
-        if (args.action === "save_project") { const i = work.projects.findIndex(p => p.id === a.id); if (i < 0) work.projects.push(a); else work.projects[i] = a; return structuredClone(work.projects); }
+        if (args.action === "save_project") { const i = work.projects.findIndex(p => p.id === a.id); if (i < 0) work.projects.push({...a,themeIds:[]}); else work.projects[i] = {...work.projects[i],...a}; return structuredClone(work.projects); }
         if (args.action === "link_project") { if (a.projectId) work.links[`${a.entityType}:${a.entityId}`] = a.projectId; else delete work.links[`${a.entityType}:${a.entityId}`]; return structuredClone(work.links); }
         if (args.action === "report_material") return material();
         if (args.action === "list_reports") return structuredClone(reports);
@@ -94,7 +100,7 @@ export function installFixture({ failStartup = false, failSettings = false, empt
           if (window.__fixture.failReport) throw Error("测试：生成失败，已有周报保留");
           const sources=material().sources.filter(s=>!a.selectedSources||a.selectedSources.includes(`${s.sourceType}:${s.id}`));
           if(!sources.length) throw Error("这一周没有可用材料");
-          const report = { id: crypto.randomUUID(), weekStart: a.weekStart, projectId: a.projectId, content: `# 工作周报\n\n${sources.map((s, i) => `${s.content} [${i + 1}]`).join("\n")}`, sources, warnings: material().warnings, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+          const report = { id: crypto.randomUUID(), weekStart: a.weekStart, projectId: a.projectId, themeId:a.themeId || null,themeName:work.themes.find(t=>t.id===a.themeId)?.name || null, content: `# 工作周报\n\n${sources.map((s, i) => `${s.content} [${i + 1}]`).join("\n")}`, sources, warnings: material().warnings, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
           reports.unshift(report); return structuredClone(report);
         }
         if (args.action === "save_report") { if (window.__fixture.failReport) throw Error("测试：周报保存失败"); const r = reports.find(r => r.id === a.id); r.content = a.content; r.updatedAt = new Date().toISOString(); return { updatedAt: r.updatedAt }; }

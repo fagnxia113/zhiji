@@ -15,7 +15,8 @@ export function WeeklyReportModal({ onClose }: { onClose: () => void }) {
   const { data, error: loadError } = useWorkbench();
   const [weekStart, setWeekStart] = useState(defaultWeekStart);
   const [projectId, setProjectId] = useState("");
-  const scope = weekStart + ":" + projectId;
+  const [themeId, setThemeId] = useState("");
+  const scope = weekStart + ":" + projectId + ":" + themeId;
   const [materialState, setMaterialState] = useState<MaterialState>({ scope: "", status: "loading", value: null, error: "" });
   const [materialRetry, setMaterialRetry] = useState(0);
   const [reports, setReports] = useState<WeeklyReport[]>([]);
@@ -42,6 +43,8 @@ export function WeeklyReportModal({ onClose }: { onClose: () => void }) {
   const materialError = materialCurrent && materialState.status === "error" ? materialState.error : "";
   const selectedSources = material?.sources.map(s => s.sourceType + ":" + s.id).filter(key => selection.scope !== scope || !selection.excluded.has(key)) || [];
   const projectName = (id: string | null) => id ? data.projects.find(p => p.id === id)?.name || "原项目（当前不可用）" : "全部项目";
+  const themeName = (data.themes || []).find(t=>t.id===themeId)?.name || "";
+  const reportScope = (report:WeeklyReport) => (report.themeName ? `主题：${report.themeName} · ` : "") + projectName(report.projectId);
   const generationReady = dateValid && !!material && selectedSources.length > 0;
 
   useEffect(() => { setSourcesExpanded(false); }, [scope]);
@@ -65,11 +68,11 @@ export function WeeklyReportModal({ onClose }: { onClose: () => void }) {
     setMaterialState({ scope, status: "loading", value: null, error: "" });
     // Only a range change resets exclusions. Refreshing this range keeps the user's selection.
     setSelection(old => old.scope === scope ? old : { scope, excluded: new Set() });
-    if (dateValid) void workbenchCall<ReportMaterial>("report_material", { weekStart, projectId: projectId || null })
+    if (dateValid) void workbenchCall<ReportMaterial>("report_material", { weekStart, projectId: projectId || null, themeId:themeId || null })
       .then(value => { if (active) setMaterialState({ scope, status: "ready", value, error: "" }); })
       .catch(cause => { if (active) setMaterialState({ scope, status: "error", value: null, error: String(cause) }); });
     return () => { active = false; };
-  }, [weekStart, projectId, scope, dateValid, data, materialRetry]);
+  }, [weekStart, projectId, themeId, scope, dateValid, data, materialRetry]);
   const choose = (report: WeeklyReport) => {
     if (operationRef.current) return;
     if (dirty) { setError("请先保存当前修改，再切换周报。"); return; }
@@ -92,7 +95,7 @@ export function WeeklyReportModal({ onClose }: { onClose: () => void }) {
     if (dirty) { setError("请先保存当前修改，再生成新版本。"); return; }
     if (!generationReady || !startOperation(mode)) return;
     try {
-      const report = await workbenchCall<WeeklyReport>("generate_report", { weekStart, projectId: projectId || null, mode, selectedSources });
+      const report = await workbenchCall<WeeklyReport>("generate_report", { weekStart, projectId: projectId || null, themeId:themeId || null, mode, selectedSources });
       setSelected(report); setContent(report.content); setReports(old => [report, ...old.filter(r => r.id !== report.id)]); setPreview(false); setNotice("已生成并保存新版本，历史周报保留");
     } catch (cause) { setError(String(cause)); } finally { finishOperation(); }
   };
@@ -109,11 +112,13 @@ export function WeeklyReportModal({ onClose }: { onClose: () => void }) {
       <h3>整理新周报</h3>
       <div className="weekly-controls">
         <label>起始日期（连续七天）<input type="date" value={weekStart} disabled={busy} onChange={e => setWeekStart(e.target.value)} /></label>
-        <label>项目范围<select aria-label="周报项目" value={projectId} disabled={busy} onChange={e => setProjectId(e.target.value)}><option value="">全部项目</option>{data.projects.map(p => <option key={p.id} value={p.id}>{p.name}{p.archived ? "（已归档）" : ""}</option>)}</select></label>
+        <label>主题范围<select aria-label="周报主题" value={themeId} disabled={busy} onChange={e=>{setThemeId(e.target.value);setProjectId("");}}><option value="">全部工作（含日常事务）</option>{(data.themes || []).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+        <label>项目范围<select aria-label="周报项目" value={projectId} disabled={busy} onChange={e => setProjectId(e.target.value)}><option value="">全部项目</option>{data.projects.filter(p=>!themeId || p.themeIds?.includes(themeId)).map(p => <option key={p.id} value={p.id}>{p.name}{p.archived ? "（已归档）" : ""}</option>)}</select></label>
         <button className="secondary-button compact-button" onClick={() => void generate("outline")} disabled={busy || !generationReady}>{operation === "outline" && <LoaderCircle className="spin" size={14} />}整理草稿</button>
         <button className="primary-button compact-button" onClick={() => void generate("ai")} disabled={busy || !generationReady}>{operation === "ai" ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />}AI 生成周报</button>
       </div>
-      <p className="report-range">{dateValid ? weekStart + " 至 " + rangeEnd(weekStart) + " · " + projectName(projectId) : "请选择起始日期，汇总连续七天的工作。"}</p>
+      <p className="report-range">{dateValid ? weekStart + " 至 " + rangeEnd(weekStart) + " · " + (themeName ? `主题：${themeName} · ` : "") + projectName(projectId) : "请选择起始日期，汇总连续七天的工作。"}</p>
+      <p className="capture-hint">{themeId ? "当前只汇总这个主题关联的项目；无项目的日常事务不在本次范围内。" : projectId ? "当前只汇总所选项目。" : "包含所有项目和没有项目归属的日常事务。"}</p>
       <p className="report-privacy">整理草稿在本机完成；AI 生成会把下方材料发送给你配置的模型服务。</p>
       {materialLoading && <p className="report-material-state" role="status"><LoaderCircle className="spin" size={14} />正在读取本次范围的材料…</p>}
       {materialError && <div className="report-material-state qa-error" role="alert"><span>材料读取失败：{materialError}</span><button className="secondary-button compact-button" onClick={() => setMaterialRetry(value => value + 1)}>重新读取材料</button></div>}
@@ -129,9 +134,9 @@ export function WeeklyReportModal({ onClose }: { onClose: () => void }) {
     {notice && <div className="capture-hint" role="status">{notice}</div>}
     {archiveLoading && <p className="report-material-state" role="status">正在读取周报档案…</p>}
     {archiveError && <div className="report-material-state qa-error" role="alert"><span>周报档案读取失败：{archiveError}</span><button className="secondary-button compact-button" onClick={() => setArchiveRetry(value => value + 1)}>重新读取档案</button></div>}
-    {!!reports.length && <label className="report-history">周报档案<select aria-label="周报档案" disabled={busy} value={selected?.id || ""} onChange={e => { const r = reports.find(r => r.id === e.target.value); if (r) choose(r); }}><option value="" disabled>选择已保存的周报</option>{reports.map(r => <option key={r.id} value={r.id}>{r.weekStart} · {projectName(r.projectId)} · {new Date(r.createdAt).toLocaleString("zh-CN")}</option>)}</select></label>}
+    {!!reports.length && <label className="report-history">周报档案<select aria-label="周报档案" disabled={busy} value={selected?.id || ""} onChange={e => { const r = reports.find(r => r.id === e.target.value); if (r) choose(r); }}><option value="" disabled>选择已保存的周报</option>{reports.map(r => <option key={r.id} value={r.id}>{r.weekStart} · {reportScope(r)} · {new Date(r.createdAt).toLocaleString("zh-CN")}</option>)}</select></label>}
     {selected && <section ref={reportBodyRef} className="report-saved" aria-label="当前周报正文">
-      <div className="report-saved-heading"><h3>编辑已保存周报</h3><p>{selected.weekStart} 至 {rangeEnd(selected.weekStart)} · {projectName(selected.projectId)}</p></div>
+      <div className="report-saved-heading"><h3>编辑已保存周报</h3><p>{selected.weekStart} 至 {rangeEnd(selected.weekStart)} · {reportScope(selected)}</p></div>
       <div className="weekly-actions"><button className="ghost-button" onClick={() => setPreview(!preview)}>{preview ? "编辑正文" : "预览排版"}</button><span role="status">{operation === "save" ? "正在保存修改…" : dirty ? "有未保存修改" : "已保存"}</span><button className="primary-button compact-button" disabled={busy || !dirty} onClick={() => void save()}>{operation === "save" ? <LoaderCircle className="spin" size={14} /> : <Save size={14} />}保存修改</button></div>
       {preview ? <div className="weekly-result markdown-body" dangerouslySetInnerHTML={{ __html: html }} /> : <textarea className="report-editor" aria-label="周报正文" value={content} disabled={busy} maxLength={100000} onChange={e => setContent(e.target.value)} />}
       <div className="weekly-actions"><button className="secondary-button compact-button" onClick={() => void copy()}><Copy size={14} />复制 Markdown</button><button className="secondary-button compact-button" onClick={download}><FileDown size={14} />导出含来源的 Markdown</button></div>

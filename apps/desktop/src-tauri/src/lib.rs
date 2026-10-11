@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 mod recorder;
 mod workbench;
+mod themes;
 mod project_hub;
 mod local_api;
 mod analysis_jobs;

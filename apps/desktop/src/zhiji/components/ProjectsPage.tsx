@@ -5,6 +5,7 @@ import { useWorkbench, workbenchCall } from "../workbench";
 import type { Workspace } from "../types";
 import { ProjectHub } from "./ProjectHub";
 import { IconButton } from "./ui";
+import { ThemeOverview } from "./projects/ThemeOverview";
 
 const recentKey = "zhiji:last-project";
 const shortcutsKey = "zhiji:project-shortcuts";
@@ -38,6 +39,9 @@ export function ProjectsPage({ workspace, onMeeting, initialProjectId = "" }: { 
   const [query, setQuery] = useState("");
   const [archived, setArchived] = useState(false);
   const [listScope, setListScope] = useState<"all" | "favorites" | "recent">("all");
+  const [browseMode, setBrowseMode] = useState<"project" | "theme">("project");
+  const [themeId, setThemeId] = useState("");
+  const [themeOverview, setThemeOverview] = useState(false);
   const [name, setName] = useState("");
   const [newId, setNewId] = useState(() => crypto.randomUUID());
   const [creating, setCreating] = useState(false);
@@ -50,14 +54,17 @@ export function ProjectsPage({ workspace, onMeeting, initialProjectId = "" }: { 
   const [shortcuts, setShortcuts] = useState(projectShortcuts);
   const [shortcutError, setShortcutError] = useState("");
   const project = data.projects.find(p => p.id === selected);
-  const pickerVisible = wide || picking || (!loading && !project);
+  const themes = data.themes || [];
+  const theme = themes.find(t=>t.id === themeId);
+  const showingTheme = browseMode === "theme" && themeOverview && !!theme;
+  const pickerVisible = wide || picking || (!loading && !project && !showingTheme);
   useEffect(() => {
     const media = window.matchMedia("(min-width: 1100px)");
     const update = () => setWide(media.matches);
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
-  useEffect(() => { if (initialProjectId) { setSelected(initialProjectId); setPicking(false); } }, [initialProjectId]);
+  useEffect(() => { if (initialProjectId) { setSelected(initialProjectId); setPicking(false); setThemeOverview(false); } }, [initialProjectId]);
   useEffect(() => {
     const returnedFromCreate = wasCreating.current && !creating;
     wasCreating.current = creating;
@@ -78,14 +85,14 @@ export function ProjectsPage({ workspace, onMeeting, initialProjectId = "" }: { 
     setBusy(true); setError("");
     try {
       await workbenchCall("save_project", { id: newId, name: name.trim(), archived: false });
-      setSelected(newId); setNewId(crypto.randomUUID()); setName(""); setCreating(false); setPicking(false); setArchived(false); setQuery("");
+      setSelected(newId); setNewId(crypto.randomUUID()); setName(""); setCreating(false); setPicking(false); setArchived(false); setQuery(""); setThemeOverview(false); setBrowseMode("project");
       if (!await refresh()) setError("项目已创建，但列表刷新失败，请重新读取，无需重复创建。");
     } catch (cause) { setError(`项目未创建，名称已保留。${String(cause)}`); }
     finally { setBusy(false); }
   };
-  const shown = data.projects.filter(p => (archived || !p.archived) && p.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()) && (listScope === "all" || shortcuts[listScope].includes(p.id)));
+  const shown = data.projects.filter(p => (archived || !p.archived) && p.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()) && (listScope === "all" || shortcuts[listScope].includes(p.id)) && (browseMode !== "theme" || !themeId || (p.themeIds || []).includes(themeId)));
   if (listScope === "recent") shown.sort((a, b) => shortcuts.recent.indexOf(a.id) - shortcuts.recent.indexOf(b.id));
-  const chooseProject = (id: string) => { setSelected(id); setPicking(false); if (!wide) switchButton.current?.focus(); };
+  const chooseProject = (id: string) => { setSelected(id); setPicking(false); setThemeOverview(false); if (!wide) switchButton.current?.focus(); };
   return <section className={`projects-page ${creating ? "is-creating" : ""}`} aria-label="项目工作区">
     <header className="project-workspace-toolbar"><div className="project-switch-actions"><button ref={switchButton} className="secondary-button compact-button" aria-expanded={pickerVisible} aria-controls="project-picker" onClick={() => { setCreating(false); if (wide) searchInput.current?.focus(); else setPicking(v => !v); }}>切换项目</button>{project && <IconButton icon={Star} primary={shortcuts.favorites.includes(project.id)} label={shortcuts.favorites.includes(project.id) ? "取消收藏当前项目" : "收藏当前项目"} onClick={() => setShortcuts(v => ({ ...v, favorites: v.favorites.includes(project.id) ? v.favorites.filter(id => id !== project.id) : [...v.favorites, project.id] }))} />}</div><button className="ghost-button" aria-expanded={creating} onClick={() => { setPicking(true); setCreating(v => !v); }}>{creating ? "取消新建" : "新建项目"}</button></header>
     {shortcutError && <p className="qa-error" role="alert">{shortcutError}</p>}
@@ -96,14 +103,18 @@ export function ProjectsPage({ workspace, onMeeting, initialProjectId = "" }: { 
         <label>项目名称<input autoFocus aria-label="新项目名称" required maxLength={80} value={name} disabled={busy} onChange={e => setName(e.target.value)} /></label>
         <button className="primary-button compact-button" disabled={busy || loading || !!loadError || !name.trim()}>创建项目</button>
       </form>}
-      <div hidden={creating}><input ref={searchInput} aria-label="查找项目" placeholder="查找项目" value={query} onChange={e => setQuery(e.target.value)} />
+      <div hidden={creating}>
+      <div className="project-list-filters" role="group" aria-label="项目查看方式"><button className="ghost-button" aria-pressed={browseMode==="project"} onClick={()=>{setBrowseMode("project");setThemeOverview(false);}}>按项目</button><button className="ghost-button" aria-pressed={browseMode==="theme"} onClick={()=>{setBrowseMode("theme");}}>按主题</button></div>
+      {browseMode==="theme" && <label className="project-theme-filter">主题<select aria-label="查看主题" value={themeId} onChange={e=>{setThemeId(e.target.value);setThemeOverview(!!e.target.value); if(e.target.value && !wide) setPicking(false);}}><option value="">全部主题的项目</option>{themes.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select>{theme && <button className="ghost-button" onClick={()=>{setThemeOverview(true);setPicking(false);}}>查看主题概览</button>}{!themes.length && <small>打开项目，在“设置主题”中添加主题。</small>}</label>}
+      <input ref={searchInput} aria-label="查找项目" placeholder="查找项目" value={query} onChange={e => setQuery(e.target.value)} />
       <label className="project-archive-filter"><input type="checkbox" checked={archived} onChange={e => setArchived(e.target.checked)} />显示已归档项目</label>
       <div className="project-list-filters" role="group" aria-label="项目列表范围">{([ ["all", "全部"], ["favorites", "收藏"], ["recent", "最近"] ] as const).map(([id, label]) => <button key={id} className="ghost-button" aria-pressed={listScope === id} onClick={() => setListScope(id)}>{label}</button>)}</div>
-      <nav aria-label="项目列表" onKeyDown={focusListItem}>{shown.map(p => <button key={p.id} aria-current={selected === p.id ? "page" : undefined} onClick={() => chooseProject(p.id)}><strong>{p.name}</strong><small>{p.archived ? "已归档" : "进行中"}</small></button>)}</nav>
+      <nav aria-label="项目列表" onKeyDown={focusListItem}>{shown.map(p => <button key={p.id} aria-current={!showingTheme && selected === p.id ? "page" : undefined} onClick={() => chooseProject(p.id)}><strong>{p.name}</strong><small>{p.archived ? "已归档" : "进行中"}{p.themeIds?.length ? ` · ${p.themeIds.map(id=>themes.find(t=>t.id===id)?.name).filter(Boolean).join(" / ")}` : ""}</small></button>)}</nav>
       {!shown.length && <p className="capture-hint">{loading ? "正在读取项目…" : query ? "没有匹配项目，试试其他关键词。" : listScope === "favorites" ? "还没有收藏项目，打开项目后点星标即可收藏。" : listScope === "recent" ? "还没有访问过项目，先从全部项目中选择。" : "还没有项目，先为手头的工作建一个。"}{listScope !== "all" && <button className="ghost-button" onClick={() => setListScope("all")}>查看全部项目</button>}</p>}
       </div>
     </aside>
-    <div className="project-detail" hidden={creating || pickerVisible && !wide}>{project
+    <div className="project-detail" hidden={creating || pickerVisible && !wide}>{showingTheme
+      ? <ThemeOverview theme={theme!} onProject={chooseProject} onMeeting={onMeeting} /> : project
       ? <ProjectHub key={project.id} project={project} workspace={workspace} entries={data.entries} projectLinks={data.links} onChanged={refresh} onMeeting={onMeeting} />
       : <div className="project-start"><h2>从一个项目继续工作</h2><p>选择项目，查看相关活动和资料，留下下一步进展。</p><p>临时想法可以先在工作台随手记录，不必立即归类。</p></div>}
     </div>

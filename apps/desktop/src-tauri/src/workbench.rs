@@ -6,6 +6,8 @@ use serde_json::Value;
 
 const TABLES: &[(&str, &str)] = &[
     ("projects", "id,name,archived,created_at"),
+    ("themes", "id,name,created_at"),
+    ("project_themes", "project_id,theme_id"),
     (
         "work_entries",
         "id,content,kind,status,occurred_on,project_id,source_label,created_at,updated_at",
@@ -16,6 +18,7 @@ const TABLES: &[(&str, &str)] = &[
         "weekly_reports",
         "id,week_start,project_id,content,sources_json,warnings_json,created_at,updated_at",
     ),
+    ("weekly_report_themes", "report_id,theme_id,theme_name"),
 ];
 
 pub(super) fn migrate(db: &Connection) -> Result<(), Box<dyn Error>> {
@@ -50,6 +53,7 @@ pub(super) fn migrate(db: &Connection) -> Result<(), Box<dyn Error>> {
         INSERT OR IGNORE INTO workbench_migrations VALUES(1);
         RELEASE workbench_migration;")?;
     project_hub::migrate(db)?;
+    db.execute_batch(include_str!("theme_schema.sql"))?;
     Ok(())
 }
 
@@ -113,6 +117,8 @@ pub(super) struct Project {
     pub name: String,
     pub archived: bool,
     pub created_at: String,
+    #[serde(default)]
+    pub theme_ids: Vec<String>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -151,6 +157,8 @@ pub(super) struct Report {
     pub id: String,
     pub week_start: String,
     pub project_id: Option<String>,
+    pub theme_id: Option<String>,
+    pub theme_name: Option<String>,
     pub content: String,
     pub sources: Vec<Source>,
     pub warnings: Vec<String>,
@@ -168,11 +176,13 @@ fn projects(db: &Connection) -> Result<Vec<Project>, String> {
             name: r.get(1)?,
             archived: r.get(2)?,
             created_at: r.get(3)?,
+            theme_ids: Vec::new(),
         })
     })
     .map_err(app_error)?
     .collect::<Result<Vec<_>, _>>()
     .map_err(app_error)
+    .and_then(|mut rows: Vec<Project>| { for p in &mut rows { p.theme_ids = themes::ids(db, &p.id)?; } Ok(rows) })
 }
 fn entries(db: &Connection) -> Result<Vec<WorkEntry>, String> {
     let mut s=db.prepare("SELECT id,content,kind,status,occurred_on,project_id,source_label,created_at,updated_at FROM work_entries ORDER BY occurred_on DESC,created_at DESC").map_err(app_error)?;
@@ -214,10 +224,13 @@ fn reports(db: &Connection) -> Result<Vec<Report>, String> {
     rows.into_iter()
         .map(
             |(id, week_start, project_id, content, sources, warnings, created_at, updated_at)| {
+                let theme: Option<(String,String)> = db.query_row("SELECT theme_id,theme_name FROM weekly_report_themes WHERE report_id=?1",[&id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(app_error)?;
                 Ok(Report {
                     id,
                     week_start,
                     project_id,
+                    theme_id: theme.as_ref().map(|t|t.0.clone()),
+                    theme_name: theme.map(|t|t.1),
                     content,
                     sources: serde_json::from_str(&sources).map_err(app_error)?,
                     warnings: serde_json::from_str(&warnings).map_err(app_error)?,
@@ -383,23 +396,26 @@ pub(super) fn material(
     start: &str,
     project: Option<&str>,
 ) -> Result<ReportMaterial, String> {
+    material_scoped(db, start, project, None)
+}
+pub(super) fn material_scoped(db: &Connection, start: &str, project: Option<&str>, theme: Option<&str>) -> Result<ReportMaterial, String> {
     let end = date(start)?
         .checked_add_signed(chrono::Duration::days(6))
         .ok_or("日期超出范围")?
         .format("%Y-%m-%d")
         .to_string();
     check_project(db, project)?;
+    let scope = themes::scope(db, project, theme)?;
     let in_range = |day: &str| day >= start && day <= end.as_str();
-    let matches = |pid: Option<&str>| project.is_none() || project == pid;
+    let matches = |pid: Option<&str>| themes::matches(&scope, pid);
     let ls = links(db)?;
     let mut sources = Vec::new();
     let mut warnings = Vec::new();
     for m in meetings(db)? {
         let day = local_day(&m.started_at);
         let mut pid = ls.get(&format!("meeting:{}", m.id)).cloned();
-        if let Some(selected) = project {
-            let related: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM activities a JOIN activity_projects p ON p.activity_id=a.id WHERE a.meeting_id=?1 AND p.project_id=?2)", params![m.id,selected], |r|r.get(0)).map_err(app_error)?;
-            if related { pid = Some(selected.to_string()); }
+        if scope.is_some() && !matches(pid.as_deref()) {
+            pid = themes::meeting_projects(db, &m.id)?.into_iter().find(|p| matches(Some(p)));
         }
         if !in_range(&day) || !matches(pid.as_deref()) {
             continue;
@@ -423,7 +439,7 @@ pub(super) fn material(
             content,
         });
     }
-    let hub = project_hub::load(db, project)?;
+    let hub = themes::hub(db, &scope)?;
     for activity in hub["activities"].as_array().unwrap() {
         let day = activity["occurredOn"].as_str().unwrap_or("");
         if !in_range(day) || sources.iter().any(|s| s.source_type == "meeting" && activity["meetingId"].as_str() == Some(s.id.as_str())) { continue; }
@@ -454,6 +470,7 @@ pub(super) fn material(
         });
     }
     let historical_tasks = project_hub::task_history(db, project)?.into_iter()
+        .filter(|e| matches(e["projectId"].as_str()))
         .filter(|e| in_range(&local_day(e["occurredAt"].as_str().unwrap_or(""))))
         .collect::<Vec<_>>();
     for event in &historical_tasks {
@@ -469,7 +486,10 @@ pub(super) fn material(
     }
     for t in tasks(db)? {
         if historical_tasks.iter().any(|e|e["taskId"].as_str()==Some(t.id.as_str())) { continue; }
-        let pid = project_for_task(&t, &ls);
+        let mut pid = project_for_task(&t, &ls);
+        if scope.is_some() && !matches(pid.as_deref()) && !ls.contains_key(&format!("task:{}", t.id)) && t.source_type.as_deref() == Some("meeting") {
+            if let Some(mid) = t.source_id.as_deref() { pid = themes::meeting_projects(db, mid)?.into_iter().find(|p| matches(Some(p))); }
+        }
         if !matches(pid.as_deref()) {
             continue;
         }
@@ -540,6 +560,7 @@ pub(super) fn material(
         warnings.push("本期没有会外记录，可补充实际交付与临时沟通。".into());
     }
     warnings.push("团队成果不自动视为个人成果；待办反映当前状态，历史周报请核对。旧版已完成待办缺少完成日期，不计入本周成果。".into());
+    if theme.is_some() { warnings.push("主题范围仅含关联项目；无项目的日常事务不在本次范围内，个人完整周报请选全部工作。".into()); }
     if sources.len() > 160 {
         return Err("材料超过 160 条，请按项目缩小范围".into());
     }
@@ -571,9 +592,10 @@ pub(super) fn material(
 pub(super) fn generate(state: &AppState, a: &Value) -> Result<Value, String> {
     let start = text_arg(a, "weekStart")?;
     let project = a["projectId"].as_str().filter(|s| !s.is_empty());
-    let mut material = {
+    let theme = a["themeId"].as_str().filter(|s| !s.is_empty());
+    let (mut material, theme_name) = {
         let db = state.connection.lock().map_err(|_| "数据库正被占用")?;
-        material(&db, start, project)?
+        (material_scoped(&db, start, project, theme)?, themes::list(&db, None)?.into_iter().find(|t|Some(t.id.as_str()) == theme).map(|t|t.name))
     };
     if let Some(selected) = a.get("selectedSources") {
         let keys = selected.as_array().ok_or("材料选择格式无效")?;
@@ -656,18 +678,21 @@ pub(super) fn generate(state: &AppState, a: &Value) -> Result<Value, String> {
         id: id(),
         week_start: start.into(),
         project_id: project.map(str::to_string),
-        content: format!(
-            "# 工作周报 · {} 至 {}\n\n{}",
-            start, material.week_end, body
-        ),
+        theme_id: theme.map(str::to_string),
+        theme_name: theme_name.clone(),
+        content: format!("# 工作周报 · {} 至 {}\n\n{}{}", start, material.week_end, theme_name.as_deref().map(|name|format!("主题：{name}\n\n")).unwrap_or_default(), body),
         sources: material.sources,
         warnings: material.warnings,
         created_at: stamp.clone(),
         updated_at: stamp,
     };
     let db = state.connection.lock().map_err(|_| "数据库正被占用")?;
+    project_hub::atomic(&db, || {
     db.execute("INSERT INTO weekly_reports(id,week_start,project_id,content,sources_json,warnings_json,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
         params![report.id,report.week_start,report.project_id,report.content,serde_json::to_string(&report.sources).map_err(app_error)?,serde_json::to_string(&report.warnings).map_err(app_error)?,report.created_at,report.updated_at]).map_err(app_error)?;
+    if let (Some(tid),Some(name)) = (&report.theme_id,&report.theme_name) { db.execute("INSERT INTO weekly_report_themes VALUES(?1,?2,?3)",params![report.id,tid,name]).map_err(app_error)?; }
+    Ok(())
+    })?;
     Ok(json!(report))
 }
 
@@ -683,8 +708,24 @@ pub(super) fn dispatch_db(db: &Connection, action: &str, a: &Value) -> Result<Va
         "load_project_hub" | "save_project_profile" | "save_activity" | "link_activity" |
         "register_resource" | "link_resource" | "unlink_resource" | "open_resource" |
         "reveal_resource" | "relocate_resource" | "entry_history" => project_hub::dispatch(db, action, a),
-        "load" => Ok(json!({"projects":projects(db)?,"entries":entries(db)?,"links":links(db)?})),
-        "list_projects" => Ok(json!(projects(db)?)),
+        "load" => Ok(json!({"projects":projects(db)?,"themes":themes::list(db,None)?,"entries":entries(db)?,"links":links(db)?})),
+        "list_projects" => {
+            let project = a["projectId"].as_str().filter(|s|!s.is_empty());
+            check_project(db,project)?;
+            let scope = themes::scope(db,project,a["themeId"].as_str().filter(|s|!s.is_empty()))?;
+            Ok(json!(projects(db)?.into_iter().filter(|p|themes::matches(&scope,Some(&p.id))).collect::<Vec<_>>()))
+        }
+        "list_themes" => { let project = a["projectId"].as_str().filter(|s|!s.is_empty()); check_project(db, project)?; Ok(json!(themes::list(db,project)?)) }
+        "save_theme" => { let tid=text_arg(a,"id")?; validate_id(tid)?; Ok(json!(themes::save(db,tid,text_arg(a,"name")?)?)) }
+        "save_project_themes" => {
+            let pid=text_arg(a,"projectId")?; check_project(db,Some(pid))?;
+            if let Some(expected) = a.get("expectedThemeIds") {
+                let mut values=expected.as_array().ok_or("主题版本格式无效")?.iter().map(|v|v.as_str().map(str::to_string).ok_or("主题版本格式无效")).collect::<Result<Vec<_>,_>>()?;
+                values.sort(); values.dedup();
+                if values != themes::ids(db,pid)? { return Err("项目主题已在其他位置修改，请重新读取后核对，当前选择已保留".into()); }
+            }
+            themes::assign(db,pid,&a["themeIds"])?; Ok(json!(themes::ids(db,pid)?))
+        }
         "save_project" => {
             let pid = text_arg(a, "id")?;
             validate_id(pid)?;
@@ -728,10 +769,11 @@ pub(super) fn dispatch_db(db: &Connection, action: &str, a: &Value) -> Result<Va
             }
             Ok(json!(links(db)?))
         }
-        "report_material" => Ok(json!(material(
+        "report_material" => Ok(json!(material_scoped(
             db,
             text_arg(a, "weekStart")?,
-            a["projectId"].as_str().filter(|s| !s.is_empty())
+            a["projectId"].as_str().filter(|s| !s.is_empty()),
+            a["themeId"].as_str().filter(|s| !s.is_empty())
         )?)),
         "list_reports" => Ok(json!(reports(db)?)),
         "save_report" => {
@@ -751,10 +793,11 @@ pub(super) fn dispatch_db(db: &Connection, action: &str, a: &Value) -> Result<Va
         "search_work" | "get_project_context" | "list_followups" => {
             let project = a["projectId"].as_str().filter(|s| !s.is_empty());
             check_project(db, project)?;
+            let scope = themes::scope(db,project,a["themeId"].as_str().filter(|s|!s.is_empty()))?;
             let query = a["query"].as_str().unwrap_or("").to_lowercase();
             let ls = links(db)?;
             let matches = |pid: Option<&str>, text: &str| {
-                (project.is_none() || project == pid) && text.to_lowercase().contains(&query)
+                themes::matches(&scope,pid) && text.to_lowercase().contains(&query)
             };
             let es = entries(db)?
                 .into_iter()
@@ -763,23 +806,31 @@ pub(super) fn dispatch_db(db: &Connection, action: &str, a: &Value) -> Result<Va
                         && (action != "list_followups" || e.status == "waiting")
                 })
                 .collect::<Vec<_>>();
-            let ts = tasks(db)?
-                .into_iter()
+            let mut scoped_tasks = Vec::new();
+            for t in tasks(db)? {
+                let mut pid = project_for_task(&t, &ls);
+                if scope.is_some() && !themes::matches(&scope,pid.as_deref()) && !ls.contains_key(&format!("task:{}",t.id)) && t.source_type.as_deref()==Some("meeting") {
+                    if let Some(mid)=t.source_id.as_deref() { pid=themes::meeting_projects(db,mid)?.into_iter().find(|p|themes::matches(&scope,Some(p))); }
+                }
+                if matches(pid.as_deref(),&t.title) { scoped_tasks.push(t); }
+            }
+            let ts = scoped_tasks.into_iter()
                 .filter(|t| {
-                    matches(project_for_task(t, &ls).as_deref(), &t.title)
-                        && (action != "list_followups" || !t.completed)
+                    action != "list_followups" || !t.completed
                 })
                 .collect::<Vec<_>>();
             let ms = if action == "list_followups" {
                 Vec::new()
             } else {
-                meetings(db)?
+                let mut scoped_meetings = Vec::new();
+                for m in meetings(db)? {
+                    let related = themes::meeting_projects(db,&m.id)?;
+                    if scope.is_none() || related.iter().any(|p|themes::matches(&scope,Some(p))) { scoped_meetings.push(m); }
+                }
+                scoped_meetings
                     .into_iter()
                     .filter(|m| {
-                        matches(
-                            ls.get(&format!("meeting:{}", m.id)).map(String::as_str),
-                            &format!("{} {} {} {}", m.title, m.minutes, m.decisions, m.notes),
-                        )
+                        format!("{} {} {} {}", m.title, m.minutes, m.decisions, m.notes).to_lowercase().contains(&query)
                     })
                     .collect::<Vec<_>>()
             };
@@ -788,7 +839,8 @@ pub(super) fn dispatch_db(db: &Connection, action: &str, a: &Value) -> Result<Va
                 json!({"entries":es.into_iter().take(50).collect::<Vec<_>>(),"tasks":ts.into_iter().take(50).collect::<Vec<_>>(),
                 "meetings":ms.into_iter().take(25).map(|m|json!({"id":m.id,"title":m.title,"startedAt":m.started_at,"minutes":clip_chars(&m.minutes,3000),"decisions":clip_chars(&m.decisions,2000),"notes":clip_chars(&m.notes,2000)})).collect::<Vec<_>>(),
                 "total":total,"limits":{"entries":50,"tasks":50,"meetings":25},
-                "projectHub": if action == "get_project_context" { project_hub::load(db, project)? } else { json!(null) }}),
+                "projects":projects(db)?.into_iter().filter(|p|themes::matches(&scope,Some(&p.id))).collect::<Vec<_>>(),
+                "projectHub": if action == "get_project_context" { themes::hub(db, &scope)? } else { json!(null) }}),
             )
         }
         _ => Err("未知的工作台操作".into()),
@@ -804,7 +856,7 @@ pub(super) async fn workbench_call(
     tauri::async_runtime::spawn_blocking(move || {
         let result = dispatch(&app.state::<AppState>(), &action, &args);
         if result.is_ok()
-            && ["save_entry", "capture_work", "save_project", "link_project", "save_project_profile", "save_activity", "link_activity", "register_resource", "link_resource", "unlink_resource", "relocate_resource"]
+            && ["save_entry", "capture_work", "save_project", "save_theme", "save_project_themes", "link_project", "save_project_profile", "save_activity", "link_activity", "register_resource", "link_resource", "unlink_resource", "relocate_resource"]
                 .contains(&action.as_str())
         {
             let _ = app.emit("zhiji://workbench-changed", ());
@@ -881,7 +933,7 @@ pub(super) fn export(db: &Connection, dir: &Path) -> Result<usize, String> {
     }
     fs::write(
         dir.join("工作台项目与关联.json"),
-        serde_json::to_string_pretty(&json!({"projects":ps,"links":links(db)?}))
+        serde_json::to_string_pretty(&json!({"projects":ps,"themes":themes::list(db,None)?,"links":links(db)?}))
             .map_err(app_error)?,
     )
     .map_err(app_error)?;

@@ -141,6 +141,22 @@
 .hub-file-placeholder h3 { margin: 16px 0 0; color: var(--text-default); }
 .hub-file-primary-actions { margin-top: 16px; gap: 8px; }
 .hub-file-maintenance { border-top: 1px solid var(--border-subtle); padding-top: 12px; margin-top: 20px; }
+.project-themes { margin-block: 10px 16px; }
+.project-theme-heading, .theme-choices, .theme-create, .theme-project-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.project-theme-heading > span:first-child { color: var(--text-muted); font-size: 12px; }
+.theme-tag { background: var(--accent-subtle); color: var(--accent); border-radius: 5px; padding: 3px 8px; font-size: 12px; overflow-wrap: anywhere; }
+.project-theme-editor { padding: 12px; margin-top: 8px; border: 1px solid var(--border-subtle); border-radius: 8px; }
+.theme-choices label { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 6px; overflow-wrap: anywhere; }
+.theme-create { margin-block: 10px; align-items: flex-end; }
+.theme-create label { display: flex; flex: 1; min-width: 140px; flex-direction: column; gap: 5px; font-size: 12px; }
+.theme-create input, .project-theme-filter select { width: 100%; box-sizing: border-box; }
+.project-theme-filter select { border: 1px solid var(--border-default); background: var(--bg-subtle); color: inherit; border-radius: 6px; padding: 8px; }
+.project-theme-filter { display: flex; flex-direction: column; gap: 7px; margin-block: 10px; font-size: 12px; }
+.theme-overview > section { margin-top: 20px; }
+.theme-overview article { padding-block: 10px; border-bottom: 1px solid var(--border-subtle); }
+.theme-overview article p { margin: 0 0 4px; overflow-wrap: anywhere; }
+.theme-overview article small { color: var(--text-muted); }
+.theme-overview section[aria-label="主题会议与资料"] > button { display: block; text-align: left; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .hub-resource-options { border: 0; border-top: 1px solid var(--border-subtle); border-radius: 0; padding-inline: 0; margin-top: 20px; }
 @container project-hub (max-width: 480px) { .capture-fields.form-grid { grid-template-columns: minmax(0, 1fr); } }
 @container project-hub (max-width: 680px) {

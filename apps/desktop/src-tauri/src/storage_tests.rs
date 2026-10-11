@@ -1,5 +1,99 @@
 use super::*;
 
+fn themed_database(path: &Path) -> Connection {
+    let db=sample_database(path);
+    for (id,name) in [("p","海外数据中心"),("q","本地数据中心"),("r","其他工作")] {
+        workbench::dispatch_db(&db,"save_project",&json!({"id":id,"name":name})).unwrap();
+    }
+    for (id,name) in [("sea","出海"),("data","数据中心"),("other","其他主题")] {
+        workbench::dispatch_db(&db,"save_theme",&json!({"id":id,"name":name})).unwrap();
+    }
+    for (id,ids) in [("p",json!(["sea","data"])),("q",json!(["data"])),("r",json!(["other"]))] {
+        workbench::dispatch_db(&db,"save_project_themes",&json!({"projectId":id,"themeIds":ids})).unwrap();
+    }
+    for (id,project) in [("ep",Some("p")),("eq",Some("q")),("er",Some("r")),("daily",None)] {
+        workbench::save_entry(&db,&json!({"id":id,"content":format!("{id} 已提交等待反馈"),"occurredOn":"2026-09-29","projectId":project,"status":"waiting"}),false).unwrap();
+    }
+    db.execute_batch("UPDATE meetings SET started_at='2026-09-29T09:00:00+08:00';
+        INSERT INTO activities VALUES('shared','共同协调','meeting','2026-09-29','meeting','now');
+        INSERT INTO activity_projects VALUES('shared','p'),('shared','q');
+        INSERT INTO resources VALUES('shared-file','D:/shared.docx','d:/shared.docx','共享方案',12,'v1','now');
+        INSERT INTO resources VALUES('private-file','D:/private.docx','d:/private.docx','其他项目私有资料',12,'v1','now');
+        INSERT INTO resource_activities VALUES('shared-file','shared','reference');
+        INSERT INTO resource_projects VALUES('private-file','q','reference');").unwrap();
+    db
+}
+
+#[test]
+fn projects_can_cross_themes_without_copying_work_and_failed_assignment_is_atomic() {
+    let dir=TestDirectory::new(); let db=themed_database(&dir.0.join("themes.sqlite3"));
+    initialize_database(&db).unwrap(); initialize_database(&db).unwrap();
+    assert_eq!(themes::ids(&db,"p").unwrap(),vec!["data","sea"]);
+    assert_eq!(workbench::dispatch_db(&db,"list_projects",&json!({"themeId":"data"})).unwrap().as_array().unwrap().len(),2);
+    assert!(workbench::dispatch_db(&db,"save_project_themes",&json!({"projectId":"p","themeIds":["sea","missing"]})).is_err());
+    assert_eq!(themes::ids(&db,"p").unwrap(),vec!["data","sea"]);
+    assert!(workbench::dispatch_db(&db,"save_project_themes",&json!({"projectId":"p","themeIds":[],"expectedThemeIds":["sea"]})).is_err());
+    workbench::dispatch_db(&db,"save_project",&json!({"id":"p","name":"改名","archived":true})).unwrap();
+    assert_eq!(themes::ids(&db,"p").unwrap().len(),2);
+    workbench::dispatch_db(&db,"save_project_themes",&json!({"projectId":"p","themeIds":["sea","sea"]})).unwrap();
+    assert_eq!(themes::ids(&db,"p").unwrap(),vec!["sea"]);
+    assert_eq!(text_value(&db,"SELECT content FROM work_entries WHERE id='ep'"),"ep 已提交等待反馈");
+    assert!(workbench::dispatch_db(&db,"save_theme",&json!({"id":"duplicate","name":" 出海 "})).is_err());
+}
+
+#[test]
+fn theme_report_material_deduplicates_shared_meetings_and_keeps_daily_work_in_full_week() {
+    let dir=TestDirectory::new(); let db=themed_database(&dir.0.join("material.sqlite3"));
+    let value=workbench::material_scoped(&db,"2026-09-28",None,Some("data")).unwrap();
+    assert_eq!(value.sources.iter().filter(|s|s.source_type=="meeting" && s.id=="meeting").count(),1);
+    assert_eq!(value.sources.iter().filter(|s|s.source_type=="entry").count(),2);
+    assert!(!value.sources.iter().any(|s|s.id=="daily" || s.id=="er"));
+    assert!(workbench::material(&db,"2026-09-28",None).unwrap().sources.iter().any(|s|s.id=="daily"));
+    let ctx=workbench::dispatch_db(&db,"get_project_context",&json!({"themeId":"data"})).unwrap();
+    assert_eq!(ctx["projectHub"]["resources"].as_array().unwrap().iter().filter(|r|r["id"]=="shared-file").count(),1);
+    assert!(workbench::material_scoped(&db,"2026-09-28",None,Some("missing")).is_err());
+}
+
+#[test]
+fn theme_queries_cannot_expand_an_authorized_project() {
+    let dir=TestDirectory::new(); let db=themed_database(&dir.0.join("scope.sqlite3"));
+    let mut args=json!({"themeId":"data","projectId":"q","weekStart":"2026-09-28"});
+    local_api::apply_project_scope(&mut args,Some("p"));
+    let ctx=workbench::dispatch_db(&db,"get_project_context",&args).unwrap();
+    assert_eq!(ctx["projects"].as_array().unwrap().len(),1);
+    assert_eq!(ctx["projects"][0]["id"],"p");
+    assert_eq!(ctx["entries"].as_array().unwrap().len(),1);
+    assert_eq!(ctx["projectHub"]["resources"].as_array().unwrap().len(),1);
+    assert_eq!(ctx["projectHub"]["resources"][0]["id"],"shared-file");
+    assert_eq!(workbench::dispatch_db(&db,"list_themes",&args).unwrap().as_array().unwrap().len(),2);
+    args["themeId"]=json!("other");
+    let ctx=workbench::dispatch_db(&db,"get_project_context",&args).unwrap();
+    assert!(ctx["entries"].as_array().unwrap().is_empty());
+    assert!(ctx["projectHub"]["resources"].as_array().unwrap().is_empty());
+    assert!(workbench::dispatch_db(&db,"report_material",&args).unwrap()["sources"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn theme_backup_restores_relationships_and_report_scope_snapshot_and_accepts_old_backups() {
+    let dir=TestDirectory::new(); let mut db=themed_database(&dir.0.join("backup.sqlite3"));
+    db.execute_batch("INSERT INTO weekly_reports VALUES('report','2026-09-28',NULL,'周报','[]','[]','now','now'); INSERT INTO weekly_report_themes VALUES('report','data','数据中心');").unwrap();
+    let snapshot=create_backup_snapshot(&db,&dir.0.join("backups")).unwrap();
+    themes::save(&db,"data","基础设施").unwrap();
+    themes::assign(&db,"p",&json!([])).unwrap();
+    let report=workbench::dispatch_db(&db,"list_reports",&json!({})).unwrap();
+    assert_eq!(report[0]["themeName"],"数据中心");
+    restore_database_backup(&mut db,&dir.0.join("backups"),&snapshot.file_name).unwrap();
+    assert_eq!(themes::ids(&db,"p").unwrap().len(),2);
+    assert_eq!(themes::list(&db,None).unwrap().iter().find(|t|t.id=="data").unwrap().name,"数据中心");
+    db.execute_batch("DROP TABLE weekly_report_themes; DROP TABLE project_themes; DROP TABLE themes;").unwrap();
+    let old=create_backup_snapshot(&db,&dir.0.join("legacy")).unwrap();
+    initialize_database(&db).unwrap();
+    themes::save(&db,"new","新主题").unwrap();
+    restore_database_backup(&mut db,&dir.0.join("legacy"),&old.file_name).unwrap();
+    assert!(themes::list(&db,None).unwrap().is_empty());
+    assert!(workbench::dispatch_db(&db,"list_reports",&json!({})).unwrap()[0]["themeName"].is_null());
+}
+
 #[test]
 fn post_meeting_engine_works_without_a_streaming_model_or_live_script() {
     let directory = TestDirectory::new();

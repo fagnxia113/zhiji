@@ -7,12 +7,14 @@ import { ProjectActivities } from "./projects/ProjectActivities";
 import { ProjectResources } from "./projects/ProjectResources";
 import { ProjectProgress } from "./projects/ProjectProgress";
 import { ProjectProgressHistory } from "./projects/ProjectProgressHistory";
+import { ProjectThemes } from "./projects/ProjectThemes";
 
 export function ProjectHub(props: ProjectWorkspaceProps) {
   const model = useProjectWorkspace(props);
   const { project, loading, busy, error, notice, catalogLoading, catalogError, loadCatalog, retry, cacheError, view, hubElement, tabButtons, focused, selectedResource, changeTab, toggleFocus } = model;
   return <section ref={hubElement} className="project-hub" aria-label="项目详情">
     <header><h2>{project.name}</h2><span>{project.archived ? "已归档" : "进行中"}</span></header>
+    <ProjectThemes project={project} />
     {error && <div className="qa-error" role="alert">{error}<button type="button" disabled={busy} onClick={() => void retry()}>重新读取</button></div>}
     {notice && <p role="status">{notice}</p>}
     {cacheError && <p role="alert" className="qa-error">{cacheError}</p>}

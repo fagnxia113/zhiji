@@ -8,6 +8,15 @@ db.exec("INSERT INTO projects VALUES('p'),('other'); INSERT INTO work_entries VA
 const migration=readFileSync(new URL("../apps/desktop/src-tauri/src/project_hub_schema.sql",import.meta.url),"utf8");
 db.exec("CREATE TABLE tasks(id TEXT PRIMARY KEY,title TEXT,completed INTEGER,source_type TEXT,source_id TEXT,owner TEXT,due_date TEXT); CREATE TABLE project_links(entity_type TEXT,entity_id TEXT,project_id TEXT);");
 db.exec(migration);db.exec(migration);
+db.exec("CREATE TABLE weekly_reports(id TEXT PRIMARY KEY);");
+const themes=readFileSync(new URL("../apps/desktop/src-tauri/src/theme_schema.sql",import.meta.url),"utf8");
+db.exec(themes);db.exec(themes);
+db.exec("INSERT INTO themes VALUES('sea','出海','now'),('data','数据中心','now'); INSERT INTO project_themes VALUES('p','sea'),('p','data'),('other','data');");
+assert.equal(db.prepare("SELECT count(*) n FROM project_themes WHERE project_id='p'").get().n,2);
+assert.throws(()=>db.exec("INSERT INTO themes VALUES('duplicate',' 出海 ','now')"));
+assert.throws(()=>db.exec("INSERT INTO project_themes VALUES('p','missing')"));
+db.exec("DELETE FROM project_themes WHERE project_id='p' AND theme_id='sea';");
+assert.equal(db.prepare("SELECT count(*) n FROM projects").get().n,2);
 assert.equal(db.prepare("SELECT count(*) n FROM entry_history").get().n,1);
 db.exec("INSERT INTO activities VALUES('a','评审','review','2026-09-29',NULL,'now'); INSERT INTO activity_projects VALUES('a','p'),('a','other'); INSERT INTO resources VALUES('r','D:/report.docx','d:/report.docx','报告',12,'version-1','now'); INSERT INTO resource_activities VALUES('r','a','output');");
 const context=JSON.stringify({activity:{id:"a",title:"评审"},resource:{id:"r",title:"报告",modifiedAt:"version-1"}});
