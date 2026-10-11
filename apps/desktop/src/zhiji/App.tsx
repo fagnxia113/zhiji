@@ -930,7 +930,7 @@ export function App() {
     setRecordingPhase("starting");
     try {
       const meetingId = meeting.id;
-      // 先在后端建好空文件，录音过程中每 10 秒追加一段，意外退出时尽量保留已录内容。
+      // 先在后端建好空文件，录音过程中每 4 秒追加一段，意外退出时尽量保留已录内容。
       const begin = await invoke<BeginRecordingResult>("begin_recording", { meetingId, captureSystem: captureSystemAudio });
       if (begin.warning) notify(begin.warning);
       const mediaRecorder = new MediaRecorder(stream);

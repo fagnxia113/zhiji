@@ -353,8 +353,6 @@ def main():
     if not args.segments and (args.speaker_count is not None or args.embedding_cache):
         parser.error("--speaker-count 和 --embedding-cache 仅用于 --segments 角色修正")
 
-    os.environ["MODELSCOPE_CACHE"] = args.model_cache
-    os.environ["HF_HOME"] = args.model_cache
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     from funasr import AutoModel
@@ -387,7 +385,7 @@ def main():
     vad_model = find_local_model(args.model_cache, "FsmnVADStreaming")
     punc_model = find_local_model(args.model_cache, "CTTransformer")
     if not all((asr_model, vad_model, punc_model)):
-        raise RuntimeError("高精度会议模型不完整，请在设置中点击“检查并修复实时引擎”")
+        raise RuntimeError("高精度会议模型不完整，请在设置中点击“检查并修复会议引擎”")
     recognizer = AutoModel(
         model=asr_model, vad_model=vad_model, punc_model=punc_model,
         vad_kwargs={"max_single_segment_time": 30000}, device="cpu",
