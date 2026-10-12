@@ -2,14 +2,15 @@ import { focusListItem } from "../ui/keyboardNavigation";
 import { File, FolderOpen, Plus, Search } from "lucide-react";
 import type { ProjectWorkspace } from "./useProjectWorkspace";
 import { roles } from "./model";
+import { workbenchCall } from "../../workbench";
 import { ProjectFolder } from "./ProjectFolder";
 
 export function ProjectResources({ model }: { model: ProjectWorkspace }) {
-  const { hub, catalog, ready, catalogReady, catalogLoading, loadCatalog, resourceId, setResourceId, role, setRole, view, setView, resourceList, addingResource, setAddingResource, links, searched, selectedResource, selectedLink, disabled, attach, reuseResource, openSelected, relocateSelected, unlinkSelected, recordResource } = model;
+  const { hub, catalog, ready, catalogReady, catalogLoading, loadCatalog, resourceId, setResourceId, role, setRole, view, setView, resourceList, addingResource, setAddingResource, links, searched, selectedResource, selectedLink, disabled, perform, attach, reuseResource, openSelected, relocateSelected, unlinkSelected, recordResource } = model;
   const clearSelection = () => {
     const index = searched.findIndex(r => r.id === selectedResource?.id);
     setView(v => ({ ...v, resourceId: "" }));
-    requestAnimationFrame(() => resourceList.current?.querySelectorAll<HTMLButtonElement>("button")[index]?.focus({ preventScroll: true }));
+    requestAnimationFrame(() => resourceList.current?.querySelectorAll<HTMLButtonElement>(".hub-file-choice")[index]?.focus({ preventScroll: true }));
   };
   return <>
     <div className="hub-resource-toolbar">
@@ -35,11 +36,11 @@ export function ProjectResources({ model }: { model: ProjectWorkspace }) {
           const link = links.find(l => l.resourceId === r.id);
           return <li key={r.id}><button className="hub-file-choice" aria-pressed={selectedResource?.id === r.id} onClick={() => setView(v => ({ ...v, resourceId: r.id, listScroll: String(resourceList.current?.scrollTop || 0) }))}>
             <File size={19} aria-hidden="true" /><span><strong>{r.title}</strong><small>{link ? roles[link.role] : "来自项目活动"} · 仅登记文件</small></span>
-          </button></li>;
+          </button><button className="secondary-button compact-button resource-open-direct" disabled={disabled}  onClick={() => void perform(async () => { await workbenchCall("open_resource", { resourceId: r.id }); }, false)}>打开文件</button></li>;
         })}</ul>
         {ready && !searched.length && <p className="journal-empty">{view.fileQuery ? "未找到匹配文件，可调整关键词；文件正文尚未索引。" : "尚未关联资料，可选择文件或复用已登记资料。"}</p>}
       </div>
-      <section className="hub-file-detail" aria-label="资料详情">
+      <section className="hub-file-detail" aria-label="资料详情" hidden={!selectedResource}>
         {selectedResource ? <>
           <button className="ghost-button hub-file-back" onClick={clearSelection}>返回资料列表</button>
           <h3>{selectedResource.title}</h3>

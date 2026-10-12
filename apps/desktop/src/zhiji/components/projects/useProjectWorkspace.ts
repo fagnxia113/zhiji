@@ -5,7 +5,7 @@ import { localDateKey } from "../../workflow";
 import { activityKinds, cachedFields, progressDraft, tabs, validDate, type HubTab, type ProjectWorkspaceProps } from "./model";
 import { useProjectData } from "./useProjectData";
 
-export function useProjectWorkspace({ project, workspace, entries = [], projectLinks = {}, onChanged, onMeeting }: ProjectWorkspaceProps) {
+export function useProjectWorkspace({ project, workspace, entries = [], projectLinks = {}, onChanged, onMeeting, meetingContent }: ProjectWorkspaceProps) {
   const [draft] = useState(() => progressDraft(project.id));
   const profileKey = `zhiji:project-profile-draft:${project.id}`;
   const activityKey = `zhiji:activity-draft:${project.id}`;
@@ -26,8 +26,8 @@ export function useProjectWorkspace({ project, workspace, entries = [], projectL
   const [resourceId, setResourceId] = useState(""); const [role, setRole] = useState("reference");
   const viewKey = `zhiji:project-view:${project.id}`;
   const [view, setView] = useState(() => {
-    const saved = cachedFields(viewKey, { tab: "overview", resourceId: "", fileQuery: "", fileActivityId: "", listScroll: "0" });
-    return { ...saved, tab: Object.prototype.hasOwnProperty.call(tabs, saved.tab) ? saved.tab as HubTab : "overview" as HubTab };
+    const saved = cachedFields(viewKey, { tab: "progress", resourceId: "", fileQuery: "", fileActivityId: "", listScroll: "0" });
+    return { ...saved, tab: Object.prototype.hasOwnProperty.call(tabs, saved.tab) ? saved.tab as HubTab : "progress" as HubTab };
   });
   const resourceList = useRef<HTMLDivElement>(null);
   const hubElement = useRef<HTMLElement>(null);
@@ -179,6 +179,6 @@ export function useProjectWorkspace({ project, workspace, entries = [], projectL
     else { setActivityId(id); setOutputId(""); }
     progressAction();
   };
-  return { project, workspace, onMeeting, hub, catalog, ready, loading, busy, error, notice, catalogReady, catalogLoading, catalogError, setError, setNotice, reload, loadCatalog, perform, retry, cacheError, goal, stage, profileDirty, profileKey, setGoal, setStage, activityId, setActivityId, title, setTitle, kind, setKind, activityDay, setActivityDay, meetingId, setMeetingId, existingActivity, setExistingActivity, resourceId, setResourceId, role, setRole, view, setView, resourceList, hubElement, tabButtons, editingProfile, setEditingProfile, addingActivity, setAddingActivity, addingResource, setAddingResource, content, setContent, progressDay, setProgressDay, progressStatus, setProgressStatus, outputId, setOutputId, entryId, activityDraftId, focused, setFocused, progressDetails, setProgressDetails, progressOptions, progressDateChosen, editorPosition, scope, links, visible, searched, selectedResource, selectedLink, recent, tasks, directMeetings, chooseFolder, openFolder, unlinkFolder, changeTab, progressAction, progressInput, toggleFocus, disabled, attach, saveProfile, saveActivity, saveProgress, toggleArchive, linkExistingActivity, reuseResource, openSelected, relocateSelected, unlinkSelected, recordResource, recordActivity };
+  return { project, workspace, onMeeting, meetingContent, hub, catalog, ready, loading, busy, error, notice, catalogReady, catalogLoading, catalogError, setError, setNotice, reload, loadCatalog, perform, retry, cacheError, goal, stage, profileDirty, profileKey, setGoal, setStage, activityId, setActivityId, title, setTitle, kind, setKind, activityDay, setActivityDay, meetingId, setMeetingId, existingActivity, setExistingActivity, resourceId, setResourceId, role, setRole, view, setView, resourceList, hubElement, tabButtons, editingProfile, setEditingProfile, addingActivity, setAddingActivity, addingResource, setAddingResource, content, setContent, progressDay, setProgressDay, progressStatus, setProgressStatus, outputId, setOutputId, entryId, activityDraftId, focused, setFocused, progressDetails, setProgressDetails, progressOptions, progressDateChosen, editorPosition, scope, links, visible, searched, selectedResource, selectedLink, recent, tasks, directMeetings, chooseFolder, openFolder, unlinkFolder, changeTab, progressAction, progressInput, toggleFocus, disabled, attach, saveProfile, saveActivity, saveProgress, toggleArchive, linkExistingActivity, reuseResource, openSelected, relocateSelected, unlinkSelected, recordResource, recordActivity };
 }
 export type ProjectWorkspace = ReturnType<typeof useProjectWorkspace>;

@@ -5,3 +5,5 @@ export * from "./modals";
 export * from "./shell";
 export * from "./meetings";
 export * from "./tasks";
+
+export { WeeklyReportPage } from "./WeeklyReportPage";

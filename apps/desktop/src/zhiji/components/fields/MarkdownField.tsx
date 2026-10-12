@@ -4,13 +4,14 @@ import { renderMarkdown } from "./markdown";
 type MarkdownFieldProps = {
   // 标题可省略：外层 pane-head / section-heading 已经给出了同一标题时，不再重复渲染，只留编辑/预览开关。
   label?: string;
+  ariaLabel?: string;
   hint?: string;
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
 };
 
-export function MarkdownField({ label, hint, value, onChange, placeholder }: MarkdownFieldProps) {
+export function MarkdownField({ label, ariaLabel, hint, value, onChange, placeholder }: MarkdownFieldProps) {
   // 默认预览：让 AI 生成的加粗/列表/标题直接可见（用户之前抱怨裸字符）
   const [mode, setMode] = useState<"preview" | "edit">("preview");
   const html = useMemo(() => renderMarkdown(value), [value]);
@@ -42,6 +43,7 @@ export function MarkdownField({ label, hint, value, onChange, placeholder }: Mar
       </div>
       {mode === "edit" ? (
         <textarea
+          aria-label={ariaLabel || label || placeholder}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}

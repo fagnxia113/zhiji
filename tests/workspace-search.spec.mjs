@@ -34,6 +34,7 @@ const input = page.getByRole("textbox", { name: "工作内容", exact: true });
 try {
   await page.goto(process.env.TEST_URL || "http://127.0.0.1:1422");
   await input.waitFor();
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "工作台", exact: true }).click();
   await page.getByRole("button", { name: "工作记录", exact: true }).click();
   assert.equal(await page.locator(".work-entry").count(), 1);
   await box.fill("技术方案 调研");
@@ -85,7 +86,7 @@ try {
   await box.press("ArrowDown");
   await page.screenshot({ path: ".tmp/ui-verification/workspace-search.png", animations: "disabled" });
   await page.setViewportSize({ width: 400, height: 700 });
-  await page.getByRole("button", { name: "展开导航", exact: true }).waitFor();
+  await page.getByRole("navigation",{name:"主导航"}).getByRole("button",{name:"周报",exact:true}).waitFor();
   await list.waitFor();
   const narrowBox = await page.locator(".global-search-results").boundingBox();
   assert.ok(narrowBox.x >= 0 && narrowBox.x + narrowBox.width <= 400);

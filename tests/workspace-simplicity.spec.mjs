@@ -34,7 +34,7 @@ try {
   await page.waitForFunction(() => window.__fixture.work.entries.length === 1);
   await page.getByRole("button", { name: "继续项目", exact: true }).click();
   const hub = page.getByRole("region", { name: "项目详情" });
-  await hub.getByRole("button", { name: "记录进展", exact: true }).click();
+  await hub.getByRole("tab", { name: "进展", exact: true }).click();
   const input = hub.getByRole("textbox", { name: "项目进展内容" });
   assert.equal(await hub.getByRole("combobox", { name: "进展状态" , includeHidden: true }).isVisible(), false);
   assert.equal(await hub.getByRole("textbox", { name: "进展日期" , includeHidden: true }).isVisible(), false);
@@ -52,7 +52,7 @@ try {
   await hub.getByRole("button", { name: "记录相关进展" }).click();
   await input.fill("已提交汇报初稿，等待反馈");
   await hub.locator(".hub-progress-context").getByText(/汇报初稿.docx/).waitFor();
-  await hub.getByRole("tab", { name: "活动", exact: true }).click();
+  await hub.getByRole("tab", { name: "会议与活动", exact: true }).click();
   await hub.locator(".hub-activity-list article").filter({ hasText: "专题沟通" }).getByRole("button", { name: "记录活动进展" }).click();
   assert.equal(await input.inputValue(), "已提交汇报初稿，等待反馈");
   assert.equal(await hub.getByRole("combobox", { name: "进展关联资料" , includeHidden: true }).inputValue(), "r1");
@@ -78,12 +78,13 @@ try {
   await page.screenshot({ path: ".tmp/ui-verification/workspace-simple-progress-dark.png", animations: "disabled" });
   await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
 
-  await hub.getByRole("tab", { name: "概览", exact: true }).click();
+  await hub.getByRole("tab", { name: "进展", exact: true }).click();
   await hub.getByText("项目设置", { exact: true }).click();
   await hub.getByRole("button", { name: "归档项目", exact: true }).click();
   await hub.getByRole("button", { name: "恢复项目", exact: true }).waitFor();
   await hub.getByRole("button", { name: "恢复项目", exact: true }).click();
   await hub.getByRole("button", { name: "归档项目", exact: true }).waitFor();
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "工作台", exact: true }).click();
   await page.getByRole("button", { name: "工作记录", exact: true }).click();
   assert.equal(await page.getByRole("region", { name: "项目详情" }).count(), 0);
   assert.equal(await page.getByRole("textbox", { name: "新项目名称" }).count(), 0);

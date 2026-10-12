@@ -31,8 +31,10 @@ try {
     const result = await page.evaluate(() => ({ f: window.__fixture.workspace.meetings[0], notes: window.__fixture.notesAtFinalize, calls: window.__fixture.calls, chunks: window.__fixture.audioChunks }));
     assert.equal(result.notes, "刚写的协调结果，结束录音时必须保留。");
     assert.equal(result.f.notes, result.notes);
+    assert.notEqual(result.f.id,"m1","page recording creates a new meeting rather than overwriting an existing transcript");
+    assert.match(await page.evaluate(()=>window.__fixture.workspace.meetings.find(m=>m.id==="m1").transcript),/客户反馈/);
     assert.equal(result.f.audioPath, "C:/fixture/new-recording.webm");
-    assert.ok(result.chunks.every(c => c.meetingId === "m1" && c.length > 0));
+    assert.ok(result.chunks.every(c => c.meetingId === result.f.id && c.length > 0));
     for (const command of ["append_live_audio", "check_live_engine"]) assert.equal(result.calls.includes(command), false);
     assert.equal(result.calls.includes("transcribe_meeting_with_speakers"), modelsReady);
     if (modelsReady) {

@@ -30,7 +30,7 @@ try {
   const chooseProject = async name => { if (!await list.isVisible()) await page.getByRole("button", { name: /^切换项目/ }).click(); await list.getByRole("button", { name }).click(); };
   await chooseProject(/季度汇报/);
   const hub = page.getByRole("region", { name: "项目详情" });
-  await hub.locator(".hub-overview").getByText("完成季度汇报", { exact: true }).waitFor();
+  await hub.locator(".project-current-state").getByText("目标：完成季度汇报", { exact: true }).waitFor();
   assert.equal(await hub.getByRole("textbox", { name: "项目目标" }).isVisible(), false);
   assert.equal(await page.evaluate(() => window.__fixture.workCalls.filter(c => c.action === "load_project_hub" && !c.args.projectId).length), 0);
 
@@ -47,19 +47,19 @@ try {
   await page.waitForFunction(() => !document.querySelector('.hub-file-detail .primary-button').disabled);
   assert.equal(await reads(), before, "cancelled file picker must not reload data");
 
-  await hub.getByRole("tab", { name: "概览", exact: true }).click();
+  await hub.getByRole("tab", { name: "进展", exact: true }).click();
   await hub.getByText("项目设置", { exact: true }).click();
   await hub.getByRole("textbox", { name: "项目目标" }).fill("目标草稿尚未提交");
-  await hub.getByRole("tab", { name: "活动", exact: true }).click();
+  await hub.getByRole("tab", { name: "会议与活动", exact: true }).click();
   await hub.getByText("添加活动", { exact: true }).click();
   await hub.getByRole("textbox", { name: "活动名称" }).fill("准备汇报评审");
   await hub.getByRole("tab", { name: "进展", exact: true }).click();
   await hub.getByRole("textbox", { name: "项目进展内容" }).fill("下次从第三部分继续");
   await chooseProject(/专题调研/);
   await chooseProject(/季度汇报/);
-  await hub.getByRole("tab", { name: "概览", exact: true }).click();
+  await hub.getByRole("tab", { name: "进展", exact: true }).click();
   assert.equal(await hub.getByRole("textbox", { name: "项目目标" }).inputValue(), "目标草稿尚未提交");
-  await hub.getByRole("tab", { name: "活动", exact: true }).click();
+  await hub.getByRole("tab", { name: "会议与活动", exact: true }).click();
   assert.equal(await hub.getByRole("textbox", { name: "活动名称" }).inputValue(), "准备汇报评审");
   await hub.getByRole("tab", { name: "进展", exact: true }).click();
   assert.equal(await hub.getByRole("textbox", { name: "项目进展内容" }).inputValue(), "下次从第三部分继续");
@@ -70,15 +70,15 @@ try {
   await page.reload();
   await resume.getByRole("button", { name: "继续项目" }).click();
   await hub.getByRole("heading", { name: "季度汇报", exact: true }).waitFor();
-  await hub.getByRole("tab", { name: "概览", exact: true }).click();
+  await hub.getByRole("tab", { name: "进展", exact: true }).click();
   assert.equal(await hub.getByRole("textbox", { name: "项目目标" }).inputValue(), "目标草稿尚未提交");
-  await hub.getByRole("tab", { name: "活动", exact: true }).click();
+  await hub.getByRole("tab", { name: "会议与活动", exact: true }).click();
   assert.equal(await hub.getByRole("textbox", { name: "活动名称" }).inputValue(), "准备汇报评审");
   await hub.getByRole("tab", { name: "进展", exact: true }).click();
   assert.equal(await hub.getByRole("textbox", { name: "项目进展内容" }).inputValue(), "下次从第三部分继续");
 
   await page.evaluate(() => { window.__fixture.failHubAfterWrite = true; });
-  await hub.getByRole("tab", { name: "概览", exact: true }).click();
+  await hub.getByRole("tab", { name: "进展", exact: true }).click();
   await hub.getByRole("button", { name: "保存目标与阶段" }).click();
   await hub.getByRole("alert").getByText(/操作已完成，但列表刷新失败/).waitFor();
   assert.equal(await page.evaluate(() => window.__fixture.hub.profiles[0].goal), "目标草稿尚未提交");
@@ -110,7 +110,7 @@ try {
   await hub.getByRole("alert").getByText(/文件不存在/).waitFor();
   await hub.getByRole("button", { name: "重新读取", exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('.hub-profile button').disabled);
-  await hub.getByRole("tab", { name: "概览", exact: true }).click();
+  await hub.getByRole("tab", { name: "进展", exact: true }).click();
   assert.equal(await hub.getByRole("textbox", { name: "项目目标" }).inputValue(), "重读也要保留这份草稿");
   await hub.getByRole("tab", { name: "资料", exact: true }).click();
   await hub.getByText("添加资料", { exact: true }).click();

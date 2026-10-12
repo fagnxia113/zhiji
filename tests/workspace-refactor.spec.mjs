@@ -43,6 +43,7 @@ try {
   assert.equal(await page.getByRole("combobox", { name: "工作状态", includeHidden: true }).inputValue(), "in_progress");
   assert.equal(await page.evaluate(() => window.__fixture.loadCount), 1, "home consumers share one initial workbench read");
   await input.fill("");
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "工作台", exact: true }).click();
   await page.getByRole("button", { name: "工作记录", exact: true }).click();
   const filter = page.getByRole("combobox", { name: "筛选项目" });
   const search = page.getByRole("textbox", { name: "搜索工作记录" });
@@ -51,22 +52,23 @@ try {
   await page.getByRole("button", { name: "打开项目：季度汇报", exact: true }).click();
   const hub = page.getByRole("region", { name: "项目详情" });
   await hub.getByRole("heading", { name: "季度汇报", exact: true }).waitFor();
-  assert.equal(await hub.getByRole("tab", { name: "概览", exact: true }).getAttribute("aria-selected"), "true");
-  assert.equal(await page.getByRole("navigation", { name: "项目列表" }).isVisible(), true);
+  assert.equal(await hub.getByRole("tab", { name: "进展", exact: true }).getAttribute("aria-selected"), "true");
+  assert.equal(await page.getByRole("navigation", { name: "项目列表" }).isVisible(), false);
   assert.equal(await page.evaluate(() => window.__fixture.loadCount), 1, "route changes do not repeat global data reads");
-  const panes = await page.locator(".project-picker, .project-detail").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().toJSON()));
-  assert.ok(panes[0].right < panes[1].left && panes[1].width >= 650, "default desktop window keeps both project navigation and content readable");
-
+  assert.ok(await hub.evaluate(el => el.getBoundingClientRect().width) >= 900, "the current work uses the page width");
+  await page.getByRole("button", {name:"切换项目",exact:true}).click();
   const projects = page.getByRole("navigation", { name: "项目列表" });
   const first = projects.getByRole("button", { name: /季度汇报/ });
   const second = projects.getByRole("button", { name: /专题调研/ });
   await first.focus(); await first.press("ArrowDown");
   assert.equal(await second.evaluate(el => document.activeElement === el), true);
   await second.press("ArrowUp"); await first.press("Enter");
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "工作台", exact: true }).click();
   await page.getByRole("button", { name: "工作记录", exact: true }).click();
   assert.equal(await filter.inputValue(), "p1"); assert.equal(await search.inputValue(), "方案");
   assert.equal(await page.getByRole("button", { name: /^等待反馈/ }).getAttribute("aria-pressed"), "true");
   await page.getByRole("button", { name: "工作台", exact: true }).click();
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "工作台", exact: true }).click();
   await page.getByRole("button", { name: "工作记录", exact: true }).click();
   assert.equal(await filter.inputValue(), "p1", "compact capture does not overwrite full-journal filters");
   assert.equal(await search.inputValue(), "方案");
@@ -84,7 +86,7 @@ try {
   await page.waitForFunction(() => window.__fixture.work.entries.length === 2);
   await page.getByText("已保存到本地资料库", { exact: true }).waitFor();
   await page.getByRole("button", { name: "打开项目：季度汇报", exact: true }).first().click();
-  await hub.getByRole("button", { name: "记录进展", exact: true }).click();
+  await hub.getByRole("tab", { name: "进展", exact: true }).click();
   const progress = hub.getByRole("textbox", { name: "项目进展内容" });
   await progress.fill("尚未提交的项目进展");
   await page.evaluate(() => {
@@ -99,7 +101,7 @@ try {
   await mkdir(new URL("../.tmp/ui-verification/", import.meta.url), { recursive: true });
   await page.screenshot({ path: ".tmp/ui-verification/workspace-refactor-projects.png", animations: "disabled" });
 
-  await hub.getByRole("tab", { name: "概览", exact: true }).click();
+  await hub.getByRole("tab", { name: "进展", exact: true }).click();
   await hub.getByText("项目设置", { exact: true }).click();
   await page.evaluate(() => { window.__fixture.failAfterArchive = true; });
   await hub.getByRole("button", { name: "归档项目", exact: true }).click();
@@ -113,29 +115,23 @@ try {
   await hub.getByRole("tab", { name: "进展", exact: true }).click();
   assert.equal(await progress.inputValue(), "尚未提交的项目进展", "external updates and refresh recovery preserve the editor");
   await page.getByRole("button", { name: "周报", exact: true }).click();
-  await page.getByRole("dialog", { name: "生成周报" }).waitFor();
-  await page.keyboard.press("Escape");
+  await page.getByRole("region", { name: "周报工作区" }).waitFor();
+  assert.equal(await page.getByRole("dialog", {name:"生成周报"}).count(),0);
+  await page.getByRole("button",{name:"项目",exact:true}).click();
   await page.setViewportSize({ width: 400, height: 700 });
   await progress.waitFor();
-  await projects.waitFor({ state: "hidden" });
-  assert.equal(await projects.isVisible(), false);
   assert.equal(await hub.evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
-  await page.getByRole("button", { name: "展开导航", exact: true }).click();
-  const menu = page.getByRole("dialog", { name: "导航菜单" });
-  await menu.waitFor();
-  assert.equal(await menu.getByRole("button", { name: "工作记录", exact: true }).locator("span").isVisible(), true, "narrow navigation includes readable labels");
-  const menuBox = await menu.boundingBox();
-  assert.ok(menuBox.x === 0 && menuBox.width < 400 && menuBox.height >= 650);
-  await menu.getByRole("button", { name: "设置", exact: true }).focus();
-  await page.keyboard.press("Tab");
-  assert.equal(await menu.getByRole("button", { name: "收起导航", exact: true }).evaluate(el => document.activeElement === el), true, "drawer traps keyboard focus");
+  const navigation = page.getByRole("navigation", { name: "主导航" });
+  assert.equal(await navigation.getByRole("button").count(),4);
+  for(const name of ["工作台","项目","会议资料","周报"])assert.equal(await navigation.getByRole("button",{name,exact:true}).isVisible(),true);
   await page.screenshot({ path: ".tmp/ui-verification/workspace-refactor-navigation-narrow.png", animations: "disabled" });
-  await menu.getByRole("button", { name: "工作记录", exact: true }).click();
-  await menu.waitFor({ state: "hidden" });
+  await navigation.getByRole("button",{name:"工作台",exact:true}).click();
+  await page.getByRole("button",{name:"工作记录",exact:true}).click();
   await input.waitFor();
   await page.setViewportSize({ width: 1200, height: 700 });
   await page.screenshot({ path: ".tmp/ui-verification/workspace-refactor-journal.png", animations: "disabled" });
 
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "工作台", exact: true }).click();
   await page.getByRole("button", { name: "行动待办", exact: true }).click();
   const ranges = page.getByRole("group", { name: "待办范围" });
   assert.equal(await ranges.getByRole("button").count(), 6);
@@ -151,12 +147,13 @@ try {
   const meetingSearch = page.getByRole("textbox", { name: "搜索会议" });
   const meetingOrder = page.getByRole("combobox", { name: "会议排序" });
   await meetingSearch.fill("客户访谈"); await meetingOrder.selectOption("updated");
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "工作台", exact: true }).click();
   await page.getByRole("button", { name: "工作记录", exact: true }).click();
   await page.getByRole("button", { name: "会议资料", exact: true }).click();
   assert.equal(await meetingSearch.inputValue(), "客户访谈"); assert.equal(await meetingOrder.inputValue(), "updated");
   assert.equal(await page.locator(".meeting-item").count(), 1);
   await page.locator(".meeting-item").click();
-  assert.equal(await page.locator(".meeting-review-tools .ai-workflow").count(), 0, "completed meetings combine status and actions in one toolbar");
+  assert.equal(await page.locator(".meeting-review-tools .ai-workflow").count(), 1, "completed meetings combine status and actions in one toolbar");
   assert.ok(await page.locator(".minutes-pane > .pane-head").evaluate(el => el.getBoundingClientRect().top) < 400, "completed meeting content starts earlier in the default window");
   await page.screenshot({ path: ".tmp/ui-verification/workspace-refactor-meeting.png", animations: "disabled" });
 

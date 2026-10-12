@@ -18,12 +18,13 @@ try {
   await page.getByRole("heading", { name: "工作台", exact: true }).waitFor();
   // The OS supplies the caption buttons; the client must not show a second title bar.
   assert.equal(await page.locator(".title-bar, .window-controls").count(), 0);
-  assert.equal(await page.locator(".icon-rail").evaluate(el => el.getBoundingClientRect().top), 0);
+  assert.equal(await page.locator(".app-navigation").evaluate(el => el.getBoundingClientRect().top), 0);
   await page.evaluate(() => window.__fixture.emit("tauri://close-requested"));
   await page.waitForFunction(() => window.__fixture.calls.includes("plugin:window|hide"));
   assert.equal(await page.evaluate(() => window.__fixture.calls.includes("plugin:window|destroy")), false);
   await page.screenshot({ path: decodeURIComponent(output) + "workbench-light.png", fullPage: true });
-  await page.getByRole("button", { name: "1 今天到期", exact: true }).click();
+  await page.getByRole("button", { name: "行动待办", exact: true }).click();
+  await page.getByRole("group", {name:"待办范围"}).getByRole("button", { name: /^今天到期/ }).click();
   assert.equal(await page.locator(".task-row").count(), 1);
   await page.getByRole("button", { name: "新建待办", exact: true }).click();
   await page.getByRole("textbox", { name: "待办内容" }).fill("验证失败时保留输入");
@@ -35,6 +36,7 @@ try {
   await page.getByRole("button", { name: "添加", exact: true }).click();
   await page.locator(".task-composer").waitFor({ state: "detached" });
   assert.equal(await page.evaluate(() => window.__fixture.workspace.tasks.filter(t => t.title === "验证失败时保留输入").length), 1);
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "工作台", exact: true }).click();
   await page.getByRole("button", { name: "行动待办", exact: true }).click();
   await page.getByRole("button", { name: "提交首次使用流程方案", exact: true }).click();
   await page.getByRole("textbox", { name: "负责人", exact: true }).fill("李明");
@@ -49,6 +51,7 @@ try {
   assert.equal(await page.locator(".meeting-item").count(), 3);
   await page.locator(".meeting-item").first().click();
   await page.screenshot({ path: decodeURIComponent(output) + "meeting-light.png", fullPage: true });
+  await page.getByRole("button", {name:"原文校对",exact:true}).click();
   await page.getByRole("textbox", { name: "完整原文", exact: true }).fill("退出前必须保存的原文");
   await page.evaluate(() => window.__fixture.emit("tauri://close-requested"));
   await page.waitForFunction(() => window.__fixture.workspace.meetings[0].transcript === "退出前必须保存的原文");
@@ -56,10 +59,10 @@ try {
   await page.evaluate(() => window.__fixture.emit("zhiji://request-exit"));
   await page.waitForFunction(() => window.__fixture.calls.includes("finish_app_exit"));
   assert.equal(await page.evaluate(() => window.__fixture.workspace.meetings[0].transcript), "退出前必须保存的原文");
-  // 对照阅读：已有纪要的会议默认并排展示原文与纪要
+  // 对照阅读由用户主动选择，已有纪要的会议默认阅读正文
   await page.locator(".meeting-item").nth(1).click();
   // 已整理完成的会议压成一行进度；纪要生成只保留工作流条一处，不在纪要栏重复
-  assert.equal(await page.locator(".meeting-journey-card.is-complete").count(), 1);
+  assert.equal(await page.locator(".meeting-journey-card").count(), 0);
   assert.equal(await page.getByRole("button", { name: /生成(新版本|纪要)/ }).count(), 0);
   assert.equal(await page.getByRole("button", { name: /更新智能纪要/ }).count(), 1);
   await page.getByRole("button", { name: "对照阅读", exact: true }).click();
@@ -73,7 +76,7 @@ try {
   assert.ok(widePanes.every(pane => pane.width >= 400), `每栏宽度应不低于 400px，实际 ${JSON.stringify(widePanes)}`);
   await page.screenshot({ path: decodeURIComponent(output) + "meeting-split.png", fullPage: true });
   // 容器不够宽时自动退回单列堆叠，而不是硬挤两栏
-  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.setViewportSize({ width: 1024, height: 1000 });
   await page.waitForTimeout(200);
   const narrowPanes = await page.locator(".meeting-contrast > section").evaluateAll(nodes =>
     nodes.map(node => Math.round(node.getBoundingClientRect().x)));
@@ -133,25 +136,22 @@ try {
   assert.equal(await page.evaluate(() => /我的笔记/.test(document.activeElement?.textContent || "")), true);
   await page.waitForFunction(() => window.__fixture.workspace.meetings.find(m => m.id === "m2")?.notes === "抽屉里的观察：客户更在意首次配置耗时。");
   await page.getByRole("button", { name: "工作台", exact: true }).click();
-  await page.getByRole("button", { name: "生成周报", exact: true }).click();
-  const dialog = page.getByRole("dialog");
-  await dialog.waitFor();
-  await page.keyboard.press("Shift+Tab");
-  assert.equal(await page.evaluate(() => !!document.activeElement.closest('[role="dialog"]')), true);
-  await page.keyboard.press("Escape");
-  await dialog.waitFor({ state: "detached" });
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "周报", exact: true }).click();
+  const report = page.getByRole("region",{name:"周报工作区"}); await report.waitFor();
+  assert.equal(await page.getByRole("dialog",{name:"生成周报"}).count(),0);
+  await page.getByRole("navigation",{name:"主导航"}).getByRole("button",{name:"工作台",exact:true}).click();
   await page.evaluate(() => {
     document.documentElement.setAttribute("data-theme", "dark");
     document.documentElement.style.colorScheme = "dark";
   });
-  await page.waitForFunction(() => getComputedStyle(document.querySelector(".recent-row")).backgroundColor === "rgb(35, 41, 46)");
+  await page.waitForFunction(() => getComputedStyle(document.querySelector(".app-navigation")).backgroundColor !== "rgb(255, 255, 255)");
   await page.screenshot({ path: decodeURIComponent(output) + "workbench-dark.png", fullPage: true });
   await page.setViewportSize({ width: 400, height: 800 });
   assert.equal(await page.evaluate(() => document.querySelector(".main-content").scrollWidth <= document.querySelector(".main-content").clientWidth), true);
   await page.screenshot({ path: decodeURIComponent(output) + "workbench-narrow.png", fullPage: true });
   await page.setViewportSize({ width: 1000, height: 560 });
   await page.getByRole("button", { name: "设置", exact: true }).scrollIntoViewIfNeeded();
-  const rail = await page.locator(".icon-rail").evaluate(el => ({ height: el.clientHeight, bottom: el.getBoundingClientRect().bottom }));
+  const rail = await page.locator(".app-navigation").evaluate(el => ({ height: el.clientHeight, bottom: el.getBoundingClientRect().bottom }));
   assert.ok(rail.height <= 560 && rail.bottom <= 560, "short windows must keep navigation inside the client area");
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByRole("heading", { name: "设置", exact: true, level: 1 }).waitFor();
@@ -168,7 +168,7 @@ try {
     }
     await statePage.getByRole("heading", { name: "工作台", exact: true }).waitFor();
     if (options.failSettings) await statePage.getByText("部分功能需要检查", { exact: true }).waitFor();
-    if (options.empty) await statePage.getByText("还没有会议，点「一键开始录音」记录第一场。").waitFor();
+    if (options.empty) await statePage.getByText("暂无待跟进事项").waitFor();
     await statePage.close();
   }
   console.log("PASS: startup failure and retry, partial settings failure, empty workspace.");

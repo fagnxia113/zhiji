@@ -14,14 +14,14 @@ import { localDateKey, taskDueState } from "./workflow";
 import { duration } from "./format";
 import { applyTheme, loadThemePreference, saveThemePreference, type ThemePreference, watchSystemTheme } from "./theme";
 import { SettingsView } from "./SettingsView";
-import { AppSidebar } from "./components/shell/AppSidebar";
+import { AppNavigation } from "./components/shell/AppNavigation";
 import { PageHeader } from "./components/shell/PageHeader";
 import { usePagePosition } from "./components/shell/usePagePosition";
 import { WorkbenchHome } from "./components/WorkbenchHome";
 import { WorkJournal } from "./components/WorkJournal";
 import { ProjectsPage } from "./components/ProjectsPage";
 import type { TaskFilter } from "./components/tasks/Tasks";
-import { CommandPalette, type Command, GenerationModal, OnboardingModal, ProgressModal, RecordingCheckModal, stripHtml, Tasks, UpdateModal, WeeklyReportModal } from "./components";
+import { CommandPalette, type Command, GenerationModal, OnboardingModal, ProgressModal, RecordingCheckModal, stripHtml, Tasks, UpdateModal, WeeklyReportPage } from "./components";
 
 const emptyWorkspace: Workspace = {
   meetings: [],
@@ -144,7 +144,8 @@ export function App() {
   const [view, setView] = useState<View>("home");
   const pageScroller = usePagePosition(view);
   const [projectTarget, setProjectTarget] = useState("");
-  const openProject = (id?: string) => { setProjectTarget(id || ""); setView("projects"); };
+  const [inlineMeetingId, setInlineMeetingId] = useState("");
+  const openProject = (id?: string) => { setInlineMeetingId(""); setProjectTarget(id || ""); setView("projects"); };
   const [taskFilter, setTaskFilter] = useState<TaskFilter>("open");
   const [taskTarget, setTaskTarget] = useState<{ id: string; request: number }>();
   const [entryTarget, setEntryTarget] = useState<{ id: string; request: number }>();
@@ -199,7 +200,8 @@ export function App() {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showGeneration, setShowGeneration] = useState(false);
-  const [weeklyReportOpen, setWeeklyReportOpen] = useState(false);
+  const [weeklyReportVisited, setWeeklyReportVisited] = useState(false);
+  const openReport = () => { setWeeklyReportVisited(true); setView("report"); };
   const [analysisPreview, setAnalysisPreview] = useState<AnalysisPreview | null>(null);
   const [analysisTemplate, setAnalysisTemplate] = useState<MeetingTemplate>(() =>
     (localStorage.getItem("zhiji:analysis-template") as MeetingTemplate | null) ?? "general"
@@ -364,13 +366,15 @@ export function App() {
     if (recordingBusy && activeRecordingMeetingId && meeting?.id !== activeRecordingMeetingId) {
       notify(recordingPhase === "finalizing" ? "录音正在安全保存，请稍候" : "录音仍在进行，已返回当前会议");
       openRecordingMeeting();
-      return;
+      return false;
     }
     try {
       await flushSelectedMeeting();
       setSelectedMeeting(meeting);
+      return true;
     } catch (error) {
       notify(`当前会议尚未保存，已阻止切换：${String(error)}`);
+      return false;
     }
   }, [activeRecordingMeetingId, flushSelectedMeeting, notify, openRecordingMeeting, recordingBusy, recordingPhase]);
 
@@ -651,9 +655,9 @@ export function App() {
   const importMeetingAudio = async () => {
     if (!selectedMeeting) return;
     if (
-      selectedMeeting.audioPath &&
+      (selectedMeeting.audioPath || selectedMeeting.transcript.trim() || selectedMeeting.minutes.trim()) &&
       !window.confirm(
-        "这场会议已有录音。继续导入会替换应用内的旧录音，是否继续？",
+        "继续导入会替换本场录音并清空原文、纪要和自动提取的待办，是否继续？",
       )
     )
       return;
@@ -694,6 +698,22 @@ export function App() {
     } finally {
       finishProcessing();
     }
+  };
+
+  const importNewMeetingAudio = async () => {
+    if (recordingBusy || processing) return;
+    try {
+      await flushSelectedMeeting();
+      beginProcessing("importing");
+      const audioPath = await open({ multiple: false, directory: false, title: "导入会议录音", filters: [{ name: "音频文件", extensions: ["wav", "mp3", "m4a", "aac", "flac", "ogg", "opus", "webm", "wma", "mp4"] }] });
+      if (typeof audioPath !== "string") return;
+      const target = await invoke<Meeting>("create_meeting", { notebookId: null });
+      setSelectedMeeting(target); setWorkspace(current => ({ ...current, meetings: [target, ...current.meetings] }));
+      beginProcessing("importing", target.id);
+      const meeting = await invoke<Meeting>("import_meeting_audio", { meetingId: target.id, audioPath });
+      setSelectedMeeting(meeting); await reload(); notify("录音已导入，可以开始转写并区分人员");
+    } catch (error) { notify(`导入录音失败：${String(error)}`); }
+    finally { finishProcessing(); }
   };
 
   const deleteMeeting = async () => {
@@ -907,7 +927,7 @@ export function App() {
       notify("请先新建或打开一场会议");
       return;
     }
-    if (meeting.audioPath && !window.confirm("这场会议已有录音。重新录音会替换旧录音，是否继续？")) return;
+    if ((meeting.audioPath || meeting.transcript.trim() || meeting.minutes.trim()) && !window.confirm("重新录音会替换本场录音并清空原文、纪要和自动提取的待办，是否继续？")) return;
     setRecordingPhase("checking");
     setRecordingCandidate(meeting);
   };
@@ -1481,16 +1501,63 @@ export function App() {
       ?? workspace.meetings.find((meeting) => meeting.id === activeRecordingMeetingId)
     : null;
 
+  const preparedMeeting = selectedMeeting && !selectedMeeting.audioPath && !selectedMeeting.transcript.trim() && !selectedMeeting.minutes.trim() && !selectedMeeting.decisions.trim();
+
+  const meetingEditor = (embedded = false) => (<MeetingWorkspace
+    embedded={embedded}
+    meetings={workspace.meetings}
+    meeting={selectedMeeting}
+    tasks={workspace.tasks}
+    onSelect={(meeting) => { if (embedded && !meeting) { void flushSelectedMeeting().then(() => setInlineMeetingId("")).catch(error => notify(`尚未保存，无法收起：${String(error)}`)); } else void selectMeeting(meeting); }}
+    onCreate={() => void createMeeting()}
+    onChange={setSelectedMeeting}
+    onDelete={() => void deleteMeeting()}
+    onImport={() => void importMeetingAudio()}
+    onExport={() => void exportMeeting()}
+    onCopy={() => void copyMeeting()}
+    onCopyText={(text, label) => void copyBlock(text, label)}
+    onRevealRecording={() => void revealRecording()}
+    onTask={(title, due) => addTask(title, due, "meeting", selectedMeeting?.id ?? null)}
+    onToggleTask={(task) => void toggleTask(task)}
+    onSaveTask={saveTask}
+    onDeleteTask={(task) => void deleteTask(task)}
+    recording={recordingWorkspaceLocked}
+    recordingFinalizing={recordingPhase === "finalizing"}
+    recordingSeconds={recordingSeconds}
+    recordingSession={recordingSession}
+    onRecord={() => requestRecording()}
+    onStop={stopRecording}
+    asrStatus={asrStatus}
+    speakerStatus={speakerStatus}
+    asrEngine={asrEngine}
+    aiConfigured={aiSettings.isConfigured}
+    processing={processingMeetingId === selectedMeeting?.id ? processing : null}
+    backgroundBusy={processing !== null && processingMeetingId !== selectedMeeting?.id}
+    autoSaveHint={autoSaveHint}
+    onTranscribe={() => void transcribeMeeting()}
+    onTranscribeWithSpeakers={() => void transcribeWithSpeakers()}
+    onRediarize={rediarizeMeeting}
+    onAnalyze={openGeneration}
+    onRegenerateSection={(section) => void regenerateMeetingSection(section)}
+    onRename={() => void renameMeeting()}
+    onRenameSpeaker={(speakerId, name) => void renameSpeaker(speakerId, name)}
+    onInstallSpeaker={() => void installSpeakerEngine()}
+    onOpenSettings={() => setView("settings")}
+    onWeeklyReport={openReport}
+    onProject={openProject}
+          />);
+
   return (
     <div className="app-shell">
-      <AppSidebar view={view} reportOpen={weeklyReportOpen} onNewMeeting={() => void createMeeting()} onReport={() => setWeeklyReportOpen(true)} onNavigate={next => {
+      <AppNavigation view={view} onNavigate={next => {
         if (next === "projects") openProject();
         else if (next === "tasks") openTasksView();
         else if (next === "journal") openJournal();
+        else if (next === "report") openReport();
         else setView(next);
       }} />
       <main className="main-content" ref={pageScroller}>
-        <PageHeader view={view} workspace={workspace} searchInput={searchInputRef} onMeeting={meeting => { void selectMeeting(meeting); setView("meetings"); }} onTask={openTask} onProject={openProject} onEntry={openEntry} />
+        <PageHeader actions={view === "meetings" ? <div className="meeting-page-actions"><button className="primary-button compact-button" disabled={recordingBusy || !!processing} onClick={() => preparedMeeting ? requestRecording() : void quickRecord()}><Mic size={15} />开始录音</button><button className="secondary-button compact-button" disabled={recordingBusy || !!processing} onClick={() => preparedMeeting ? void importMeetingAudio() : void importNewMeetingAudio()}>导入录音</button></div> : undefined} view={view} workspace={workspace} searchInput={searchInputRef} onMeeting={meeting => { void selectMeeting(meeting); setView("meetings"); }} onTask={openTask} onProject={openProject} onEntry={openEntry} />
         {message && <div className="toast" role="status" aria-live="polite">{message}</div>}
         {startupWarning && <div className="interrupted-task-banner" role="status"><div><strong>部分功能需要检查</strong><small>{startupWarning}</small></div><button className="secondary-button compact-button" onClick={() => setView("settings")}>检查设置</button><button className="secondary-button compact-button" onClick={() => void retryStartup()} disabled={recordingBusy || Boolean(processing)}>重新加载</button></div>}
         {recordingPhase !== "idle" && recordingPhase !== "checking" && (
@@ -1587,61 +1654,21 @@ export function App() {
             onQuickRecord={() => void quickRecord()}
             onOpenTasks={openTasksView}
             onOpenTask={openTask}
-            onOpenMeetings={() => setView("meetings")}
+            onToggleTask={task => void toggleTask(task)}
+            onOpenEntry={openEntry}
             aiReady={aiSettings.isConfigured}
             transcriptionReady={asrEngine.provider === "cloud" ? asrEngine.cloudKeySaved : (asrStatus.installed && asrStatus.runtimeAvailable) || (speakerStatus.installed && speakerStatus.modelsReady)}
             onSettings={() => setView("settings")}
-            onReport={() => setWeeklyReportOpen(true)}
+            onReport={openReport}
             onJournal={openJournal}
             onProjects={openProject}
           />
         )}
-        {view === "meetings" && (
-          <MeetingWorkspace
-            meetings={workspace.meetings}
-            meeting={selectedMeeting}
-            tasks={workspace.tasks}
-            onSelect={(meeting) => void selectMeeting(meeting)}
-            onCreate={() => void createMeeting()}
-            onChange={setSelectedMeeting}
-            onDelete={() => void deleteMeeting()}
-            onImport={() => void importMeetingAudio()}
-            onExport={() => void exportMeeting()}
-            onCopy={() => void copyMeeting()}
-            onCopyText={(text, label) => void copyBlock(text, label)}
-            onRevealRecording={() => void revealRecording()}
-            onTask={(title, due) => addTask(title, due, "meeting", selectedMeeting?.id ?? null)}
-            onToggleTask={(task) => void toggleTask(task)}
-            onSaveTask={saveTask}
-            onDeleteTask={(task) => void deleteTask(task)}
-            recording={recordingWorkspaceLocked}
-            recordingFinalizing={recordingPhase === "finalizing"}
-            recordingSeconds={recordingSeconds}
-            recordingSession={recordingSession}
-            onRecord={() => requestRecording()}
-            onStop={stopRecording}
-            asrStatus={asrStatus}
-            speakerStatus={speakerStatus}
-            asrEngine={asrEngine}
-            aiConfigured={aiSettings.isConfigured}
-            processing={processingMeetingId === selectedMeeting?.id ? processing : null}
-            backgroundBusy={processing !== null && processingMeetingId !== selectedMeeting?.id}
-            autoSaveHint={autoSaveHint}
-            onTranscribe={() => void transcribeMeeting()}
-            onTranscribeWithSpeakers={() => void transcribeWithSpeakers()}
-            onRediarize={rediarizeMeeting}
-            onAnalyze={openGeneration}
-            onRegenerateSection={(section) => void regenerateMeetingSection(section)}
-            onRename={() => void renameMeeting()}
-            onRenameSpeaker={(speakerId, name) => void renameSpeaker(speakerId, name)}
-            onInstallSpeaker={() => void installSpeakerEngine()}
-            onOpenSettings={() => setView("settings")}
-            onWeeklyReport={() => setWeeklyReportOpen(true)}
-            onProject={openProject}
-          />
-        )}
+        {view === "meetings" && <>{meetingEditor()}</>}
+        {weeklyReportVisited && <div hidden={view !== "report"}><WeeklyReportPage active={view === "report"} /></div>}
+        {(view === "tasks" || view === "journal") && <button className="text-button workspace-back" onClick={() => setView("home")}>返回工作台</button>}
         {view === "journal" && <WorkJournal workspace={workspace} targetEntry={entryTarget} onClearTarget={() => setEntryTarget(undefined)} onProjects={openProject} onMeeting={id => { const m = workspace.meetings.find(m => m.id === id); if (m) { void selectMeeting(m); setView("meetings"); } }} />}
-        {view === "projects" && <ProjectsPage initialProjectId={projectTarget} workspace={workspace} onMeeting={id => { const m = workspace.meetings.find(m => m.id === id); if (m) { void selectMeeting(m); setView("meetings"); } }} />}
+        {view === "projects" && <ProjectsPage initialProjectId={projectTarget} workspace={workspace} onContextChange={() => setInlineMeetingId("")} meetingContent={selectedMeeting?.id === inlineMeetingId ? meetingEditor(true) : null} onMeeting={id => { const m = workspace.meetings.find(m => m.id === id); if (m) { void selectMeeting(m).then(saved => { if (saved) setInlineMeetingId(id); }); } }} />}
         {view === "tasks" && (
           <Tasks
             key={taskFilter}
@@ -1771,9 +1798,6 @@ export function App() {
             setAnalysisPreview(null);
           }}
         />
-      )}
-      {weeklyReportOpen && !showOnboarding && (
-        <WeeklyReportModal onClose={() => setWeeklyReportOpen(false)} />
       )}
       {showUpdateModal && !showOnboarding && !showGeneration && (
         <UpdateModal

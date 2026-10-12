@@ -1,9 +1,8 @@
-import { Check, CheckCircle2, ChevronRight, Columns2, Copy, FileAudio, FileDown, FolderOpen, LoaderCircle, MessageCircleQuestion, Mic, MoreHorizontal, Play, Plus, RefreshCw, Sparkles, StickyNote, Trash2, Upload, Wand2, X } from "lucide-react";
+import { CheckCircle2, Columns2, Copy, FileAudio, FileDown, FolderOpen, MessageCircleQuestion, Mic, MoreHorizontal, Play, Plus, RefreshCw, Sparkles, StickyNote, Trash2, Upload, Wand2, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MeetingProject } from "./MeetingProject";
 import type { AsrEngineSettings, RecordingSessionStatus, LocalAsrStatus, Meeting, Processing, SpeakerEngineStatus, SpeakerSegment, Task } from "../types";
 import { MeetingStatus, isLiveDraft } from "../types";
-import { meetingJourney } from "../workflow";
 import { duration } from "../format";
 import { AiWorkflow, AudioPlayer, Dialog, EditorField, Empty, IconButton, MarkdownField, RecordingStage, MeetingQaPanel, MeetingSidebar, Popover, SpeakerTimeline, StatusDot, stripHtml, TaskComposer, TaskRow, Tooltip } from "../components";
 
@@ -24,14 +23,9 @@ function minuteSources(markdown: string) {
     .filter((seconds) => Number.isFinite(seconds) && !seen.has(seconds) && Boolean(seen.add(seconds)));
 }
 
-// 对照阅读需要足够的横向空间：详情列在「导航 + 会议列表 + 详情」三层布局下只有约 850px，
-// 强行对分会把转写正文压到 100px 上下。因此只有宽屏才默认进入对照，窄屏沿用原来的单栏 Tab。
-function wideEnoughForContrast() {
-  return typeof window !== "undefined" && window.matchMedia("(min-width: 1400px)").matches;
-}
 function initialWorkspaceTab(target: Meeting | null): "split" | "summary" | "transcript" {
   if (!target?.minutes.trim()) return "transcript";
-  return wideEnoughForContrast() ? "split" : "summary";
+  return "summary";
 }
 
 export function MeetingWorkspace({
@@ -75,7 +69,9 @@ export function MeetingWorkspace({
   onRenameSpeaker,
   onWeeklyReport,
   onProject,
+  embedded = false,
 }: {
+  embedded?: boolean;
   meetings: Meeting[];
   meeting: Meeting | null;
   tasks: Task[];
@@ -139,9 +135,9 @@ export function MeetingWorkspace({
   const [rolesOpen, setRolesOpen] = useState(false);
   const [expectedSpeakers, setExpectedSpeakers] = useState("auto");
   const [correctingRoles, setCorrectingRoles] = useState(false);
-  // 会前背景条：默认收起；有内容时收起并显示首行预览，空时展开引导填写
+  // 背景从标题栏按需展开，默认优先阅读会议正文。
   const [contextOpen, setContextOpen] = useState<boolean | null>(null);
-  const contextExpanded = contextOpen ?? !meeting?.context?.trim();
+  const contextExpanded = contextOpen ?? false;
   const isContrast = workspaceTab === "split";
 
   useEffect(() => {
@@ -187,7 +183,6 @@ export function MeetingWorkspace({
     () => new Set(speakerSegments.map((segment) => segment.speakerId ?? segment.speaker)).size,
     [speakerSegments],
   );
-  const journey = meeting ? meetingJourney(meeting) : null;
 
   const updateSpeakerSegment = (index: number, text: string) => {
     if (!meeting) return;
@@ -342,6 +337,7 @@ export function MeetingWorkspace({
           hint="Markdown 预览会渲染标题、列表与表格"
           value={stripHtml(meeting.minutes)}
           onChange={(minutes) => onChange({ ...meeting, minutes })}
+          ariaLabel="纪要正文"
           placeholder="生成纪要后显示在这里"
         />
       ) : (
@@ -444,8 +440,8 @@ export function MeetingWorkspace({
   ) : null;
 
   return (
-    <div className={`meeting-shell ${meeting ? "has-meeting" : ""} ${recording ? "is-live" : ""} ${isContrast ? "is-contrast" : ""}`}>
-      {!recording && (
+    <div className={`meeting-shell ${embedded ? "is-embedded" : ""} ${meeting ? "has-meeting" : ""} ${recording ? "is-live" : ""} ${isContrast ? "is-contrast" : ""}`}>
+      {!recording && !embedded && (
         <MeetingSidebar
           meetings={meetings}
           selectedId={meeting?.id}
@@ -459,7 +455,7 @@ export function MeetingWorkspace({
         {meeting ? (
           <>
             <header className="meeting-detail-header" ref={header}>
-              <button className="back-to-list" onClick={() => onSelect(null)}>← 会议</button>
+              <button className="back-to-list" onClick={() => onSelect(null)}>{embedded ? "收起会议" : "← 会议"}</button>
               <div className="meeting-title-block">
                 <input
                   className="title-input"
@@ -470,8 +466,10 @@ export function MeetingWorkspace({
                 <div className="meeting-meta">
                   <span>{dateTime(meeting.startedAt)}</span>
                   <StatusDot status={meeting.status} />
+                  {!recording && <span>{meeting.audioPath ? `录音 ${duration(meeting.durationSeconds)} · ${speakerCount ? `${speakerCount} 位发言人` : "尚未区分发言人"}` : "尚未添加录音"}</span>}
                   <span>{recording ? "会议进行中" : meeting.minutes.trim() ? "纪要已生成" : meeting.transcript.trim() ? "等待整理" : "会前准备"}</span>
                 </div>
+                {!recording && <button className="ghost-button meeting-background-toggle" aria-expanded={contextExpanded} onClick={() => setContextOpen(!contextExpanded)}>会议背景</button>}
                 <MeetingProject key={meeting.id} meetingId={meeting.id} disabled={recording || recordingFinalizing} onProject={onProject} />
               </div>
               <div className="meeting-header-actions">
@@ -495,6 +493,8 @@ export function MeetingWorkspace({
                           <button onClick={() => { onExport(); close(); }}><FileDown size={15} />导出 Markdown</button>
                           <button onClick={() => { onRevealRecording(); close(); }} disabled={!meeting.audioPath}><FolderOpen size={15} />打开录音位置</button>
                           <button onClick={() => { setTaskComposing(true); setWorkspaceTab("summary"); close(); }}><Plus size={15} />添加待办</button>
+                          <button onClick={() => { onImport(); close(); }} disabled={busy}><Upload size={15} />替换本场录音</button>
+                          <button onClick={() => { onRecord(); close(); }} disabled={busy}><Mic size={15} />录制本场会议</button>
                           <span />
                           <button className="danger" onClick={() => { onDelete(); close(); }} disabled={busy}><Trash2 size={15} />删除会议</button>
                         </div>
@@ -517,88 +517,9 @@ export function MeetingWorkspace({
               />
             ) : (
               <>
-                {journey && (journey.step === 4 ? (
-                  <section className="meeting-journey-card is-complete">
-                    <div className="journey-complete-copy">
-                      <Check size={15} />
-                      <strong>{journey.label}</strong>
-                      <small>{journey.detail}</small>
-                    </div>
-                    <div className="meeting-journey-actions">
-                      <button className="secondary-button compact-button" disabled={busy} onClick={onImport}>
-                        {processing === "importing" ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}
-                        {processing === "importing" ? "正在导入" : "导入录音"}
-                      </button>
-                      <button className="record-button compact-button" disabled={busy} onClick={onRecord}>
-                        <Mic size={14} />{meeting.audioPath ? "重新录音" : "开始录音"}
-                      </button>
-                      {workflow}
-                    </div>
-                  </section>
-                ) : (
-                  <section className={`meeting-journey-card step-${journey.step}`}>
-                    <div className="meeting-journey-copy">
-                      <span>当前进度</span>
-                      <strong>{journey.label}</strong>
-                      <small>{journey.detail}</small>
-                    </div>
-                    <div className="meeting-journey-steps" aria-label="会议处理进度">
-                      {[
-                        [1, "录音"],
-                        [2, "原文"],
-                        [3, "纪要"],
-                        [4, "完成"],
-                      ].map(([step, label]) => (
-                        <button
-                          key={step}
-                          className={Number(step) < journey.step ? "done" : Number(step) === journey.step ? "current" : ""}
-                          disabled={Number(step) === 1 || Number(step) > journey.step || (Number(step) === 2 && !meeting.transcript.trim())}
-                          onClick={() => {
-                            if (Number(step) === 2) setWorkspaceTab("transcript");
-                            if (Number(step) >= 3) setWorkspaceTab("summary");
-                          }}
-                        >
-                          <i>{Number(step) < journey.step ? <Check size={12} /> : step}</i>
-                          <span>{label}</span>
-                        </button>
-                      ))}
-                    </div>
-                    <div className="meeting-journey-actions">
-                      <button className="secondary-button compact-button" disabled={busy} onClick={onImport}>
-                        {processing === "importing" ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}
-                        {processing === "importing" ? "正在导入" : "导入录音"}
-                      </button>
-                      <button className="record-button compact-button" disabled={busy} onClick={onRecord}>
-                        <Mic size={14} />{meeting.audioPath ? "重新录音" : "开始录音"}
-                      </button>
-                    </div>
-                  </section>
-                ))}
-
-                {/* 常驻一行：会议背景直接影响热词校正与纪要理解，不该藏在外层卡片标题之后 */}
-                <section className="meeting-context" aria-label="会议背景">
-                  <div className={`context-strip ${contextExpanded ? "open" : ""}`}>
-                    <button
-                      className="context-strip-head"
-                      aria-expanded={contextExpanded}
-                      onClick={() => setContextOpen(!contextExpanded)}
-                    >
-                      <ChevronRight size={14} style={{ transform: contextExpanded ? "rotate(90deg)" : "none", transition: "transform 120ms" }} />
-                      <span>会议背景</span>
-                      {!contextExpanded && meeting.context.trim() && <small>{meeting.context.trim().split("\n")[0]}</small>}
-                      {!contextExpanded && !meeting.context.trim() && <small className="context-empty">议程、参会人、术语用于热词校正与纪要理解</small>}
-                    </button>
-                    {contextExpanded && (
-                      <textarea
-                        className="context-input"
-                        value={meeting.context}
-                        onChange={(event) => onChange({ ...meeting, context: event.target.value })}
-                        placeholder="例如：会议目标、议程、专业术语、参会人姓名…"
-                        rows={3}
-                      />
-                    )}
-                  </div>
-                </section>
+                {contextExpanded && <section className="meeting-context" aria-label="会议背景">
+                  <textarea className="context-input" aria-label="会议背景内容" value={meeting.context} onChange={event => onChange({ ...meeting, context: event.target.value })} placeholder="会议目标、议程、专业术语、参会人姓名…" rows={3} />
+                </section>}
 
                 <section className="meeting-review-tools">
                   {meeting.audioPath && (
@@ -609,7 +530,7 @@ export function MeetingWorkspace({
                       onTimeUpdate={(seconds) => setCurrentMs(seconds * 1000)}
                     />
                   )}
-                  {journey?.step !== 4 && workflow}
+                  {workflow}
                 </section>
 
                 <div className={`meeting-workspace ${isContrast ? "is-contrast" : ""}`}>

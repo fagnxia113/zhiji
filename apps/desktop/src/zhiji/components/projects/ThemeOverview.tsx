@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useWorkbench, workbenchCall, statuses, type Project, type Theme, type WorkEntry } from "../../workbench";
 import type { Task } from "../../types";
 import type { Hub } from "./model";
 
 type Context = { projects: Project[]; entries: WorkEntry[]; tasks: Task[]; meetings: {id:string; title:string; startedAt:string}[]; total:number; projectHub:Hub; followups:{entries:WorkEntry[];tasks:Task[]} };
-export function ThemeOverview({ theme, onProject, onMeeting }: { theme:Theme; onProject:(id:string)=>void; onMeeting:(id:string)=>void }) {
+export function ThemeOverview({ theme, onProject, onMeeting, meetingContent }: { theme:Theme; onProject:(id:string)=>void; onMeeting:(id:string)=>void; meetingContent?: ReactNode }) {
   const { data, refresh } = useWorkbench();
   const [context, setContext] = useState<Context | null>(null);
   const [error, setError] = useState("");
@@ -37,5 +37,6 @@ export function ThemeOverview({ theme, onProject, onMeeting }: { theme:Theme; on
     <section aria-label="主题待协调事项"><h3>待协调与行动</h3>{waitingEntries.slice(0,5).map(e=><article key={e.id}><p>{e.content}</p>{e.projectId && <button className="ghost-button" onClick={()=>onProject(e.projectId!)}>继续协调</button>}</article>)}{context.followups.tasks.slice(0,5).map(t=><article key={t.id}><p>{t.title}</p><small>{t.owner || "未设负责人"}{t.dueDate ? ` · 截止：${t.dueDate}` : ""}</small>{t.sourceType==="meeting" && t.sourceId && <button className="ghost-button" onClick={()=>onMeeting(t.sourceId!)}>查看来源会议</button>}</article>)}{!context.followups.tasks.length && !waitingEntries.length && <p className="capture-hint">{recentEntries.some(e=>e.status==="waiting") ? "等待反馈事项已在上方进展中列出。" : "暂无记录的等待事项或未完成行动。"}</p>}</section>
     <section aria-label="主题会议与资料"><h3>会议与资料</h3>{context.meetings.slice(0,5).map(m=><button key={m.id} className="ghost-button" onClick={()=>onMeeting(m.id)}>{m.title}</button>)}{context.projectHub.resources.slice(0,8).map(r=><button key={r.id} disabled={opening} className="ghost-button" onClick={()=>void openResource(r.id)}>{r.title} · 打开原文件</button>)}{!context.meetings.length && !context.projectHub.resources.length && <p className="capture-hint">暂无关联会议或资料。</p>}</section>
     <p className="capture-hint">概览展示部分近期内容，更多记录可进入相关项目查看。</p></>}
+    {meetingContent}
   </section>;
 }

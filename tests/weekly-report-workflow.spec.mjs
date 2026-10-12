@@ -50,12 +50,12 @@ try {
   await page.goto(process.env.TEST_URL || "http://127.0.0.1:1422");
   await page.getByRole("heading", { name: "工作台", exact: true }).waitFor();
   await page.getByRole("button", { name: "周报", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "生成周报" });
-  const compose = dialog.getByRole("region", { name: "整理新周报" });
+  const dialog = page.getByRole("region", { name: "周报工作区" });
+  const compose = dialog.getByRole("complementary", { name: "整理新周报" });
   const draft = dialog.getByRole("button", { name: "整理草稿", exact: true });
   const ai = dialog.getByRole("button", { name: "AI 生成周报", exact: true });
   const date = dialog.getByLabel("起始日期（连续七天）");
-  const project = dialog.getByRole("combobox", { name: "周报项目", exact: true });
+  const project = dialog.getByRole("combobox", { name: "周报范围", exact: true });
   const archive = dialog.getByRole("combobox", { name: "周报档案", exact: true });
   const editor = dialog.getByRole("textbox", { name: "周报正文", exact: true });
   const saved = dialog.getByRole("region", { name: "当前周报正文" });
@@ -73,29 +73,29 @@ try {
   await saved.getByText("2026-09-21 至 2026-09-27 · 客户交付", { exact: true }).waitFor();
   await page.waitForFunction(() => {
     const body = document.querySelector(".report-saved").getBoundingClientRect();
-    const modal = document.querySelector(".report-workspace").getBoundingClientRect();
-    return body.top >= modal.top && body.top < modal.top + modal.height / 2;
+    const main = document.querySelector(".main-content").getBoundingClientRect();
+    return body.top >= main.top - 1 && body.top < main.bottom;
   });
-  assert.match(await compose.locator(".report-range").innerText(), new RegExp(start));
-  assert.match(await compose.locator(".report-range").innerText(), /全部项目/);
+  assert.match(await dialog.locator(".report-range").innerText(), new RegExp(start));
+  assert.match(await dialog.locator(".report-range").innerText(), /全部项目/);
   await editor.fill("# 正在核对的旧周报");
-  await date.fill("2025-01-06"); await project.selectOption("p2");
+  await date.fill("2025-01-06"); await project.selectOption("project:p2");
   await compose.getByText(/当前范围没有材料/).waitFor();
   assert.equal(await draft.isDisabled(), true);
   assert.equal(await editor.inputValue(), "# 正在核对的旧周报", "changing generation range preserves the archived report draft");
   await archive.selectOption("old-p2");
   await dialog.getByRole("alert").getByText("请先保存当前修改，再切换周报。", { exact: true }).waitFor();
   assert.equal(await archive.inputValue(), "old-p1");
-  await date.fill(start); await project.selectOption("p1");
+  await date.fill(start); await project.selectOption("project:p1");
   await compose.getByText("待汇总材料 · 已选 2 / 2 条", { exact: true }).waitFor();
   await draft.click();
   await dialog.getByRole("alert").getByText("请先保存当前修改，再生成新版本。", { exact: true }).waitFor();
-  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
-  await dialog.getByRole("alert").getByText(/有未保存的修改/).waitFor();
+  await page.getByRole("button",{name:"项目",exact:true}).click();
+  await page.getByRole("button",{name:"周报",exact:true}).click();
+  assert.equal(await editor.inputValue(), "# 正在核对的旧周报", "leaving the report preserves unsaved edits");
   assert.equal(await page.evaluate(() => window.__reportScenario.writes.length), 0);
   await editor.fill("# 客户交付历史周报");
 
-  await compose.getByText("待汇总材料 · 已选 2 / 2 条", { exact: true }).click();
   const excluded = compose.getByRole("checkbox", { name: "纳入周报：内部参考笔记", exact: true });
   await excluded.uncheck();
   await page.evaluate(() => { window.__fixture.emit("zhiji://workbench-changed"); });
@@ -124,8 +124,8 @@ try {
   await dialog.getByText("已生成并保存新版本，历史周报保留", { exact: true }).waitFor();
   await page.waitForFunction(() => {
     const body = document.querySelector(".report-saved").getBoundingClientRect();
-    const modal = document.querySelector(".report-workspace").getBoundingClientRect();
-    return body.top >= modal.top && body.top < modal.top + modal.height / 2;
+    const main = document.querySelector(".main-content").getBoundingClientRect();
+    return body.top >= main.top - 1 && body.top < main.bottom;
   });
   assert.deepEqual(await page.evaluate(() => window.__fixture.reports[0].sources.map(s => s.id)), ["e1"]);
   assert.equal(await page.evaluate(() => window.__fixture.reports.length), 3);
@@ -140,7 +140,7 @@ try {
   await page.evaluate(() => { const s = window.__reportScenario; s.holdSave = false; s.resumeSave(); });
   await dialog.getByText("修改已保存", { exact: true }).waitFor();
   await date.fill("");
-  await compose.getByText("请选择起始日期，汇总连续七天的工作。", { exact: true }).waitFor();
+  await dialog.getByText("请选择起始日期，汇总连续七天的工作。", { exact: true }).waitFor();
   assert.equal(await draft.isDisabled(), true);
   await date.fill(start);
   await compose.getByText("待汇总材料 · 已选 2 / 2 条", { exact: true }).waitFor();

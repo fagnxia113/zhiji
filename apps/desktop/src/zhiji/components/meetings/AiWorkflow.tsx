@@ -42,7 +42,7 @@ export function AiWorkflow({
   const autoTranscribing = processing === "autoTranscribing";
   const transcribing =
     processing === "transcribing" || processing === "speakerTranscribing";
-  // 本地实时会议引擎会同时完成高精度转写和说话人分离；轻量模型作为低配置电脑的回退。
+  // 本地会议引擎在停录后完成高精度转写和说话人分离；轻量模型作为低配置电脑的回退。
   const handleTranscribe = speakerReady ? onTranscribeWithSpeakers : onTranscribe;
   // 进行中的状态必须常显（用户要看到「正在转写」这类实时反馈）；
   // 就绪态的长篇说明只在悬停「说明」图标时弹出，避免常驻占掉一行。
@@ -66,14 +66,14 @@ export function AiWorkflow({
     : asrStatus.installed
       ? speakerReady
         ? "点击「开始转写」会一次性完成转写与说话人分离。"
-        : "点击「开始转写」即可；安装实时会议引擎后还能边录边出字幕并区分发言人。"
+        : "点击「开始转写」即可；安装会议引擎后可在停录后区分发言人。"
       : "请先在设置中下载本地中文语音模型，录音后即可自动转写。";
   return (
     <div className="ai-workflow">
       <div className="ai-flow-copy">
         <Sparkles size={18} />
         <span className="ai-flow-title">
-          <strong>录音即转写 · 智能纪要</strong>
+          <strong>转写与纪要</strong>
           {statusText ? <small role="status">{statusText}</small> : null}
         </span>
         {statusText ? null : (

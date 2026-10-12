@@ -23,7 +23,6 @@ await page.addInitScript({content:`(${installFixture.toString()})(); (${seed.toS
 try {
   await page.goto(process.env.TEST_URL || "http://127.0.0.1:1422");
   await page.getByRole("button",{name:"项目",exact:true}).click();
-  const list=page.getByRole("navigation",{name:"项目列表"});
   const themes=page.getByRole("region",{name:"项目主题"});
   await themes.getByRole("button",{name:"设置主题",exact:true}).click();
   await themes.getByRole("checkbox",{name:"出海",exact:true}).check();
@@ -37,14 +36,14 @@ try {
   assert.equal(await themes.getByRole("checkbox",{name:"研究资料",exact:true}).isChecked(),true);
   await themes.getByRole("checkbox",{name:"研究资料",exact:true}).uncheck();
   await themes.getByRole("button",{name:"收起主题",exact:true}).click();
-  await page.getByRole("button",{name:"按主题",exact:true}).click();
-  await page.getByRole("combobox",{name:"查看主题",exact:true}).selectOption("sea");
+  const scope=page.getByRole("combobox",{name:"查看项目或主题",exact:true});
+  await scope.selectOption("theme:sea");
   const overview=page.getByRole("region",{name:"主题概览",exact:true});
   await overview.getByText("海外方案已提交，等待反馈",{exact:true}).first().waitFor();
-  assert.equal(await list.getByRole("button").count(),1);
-  await page.getByRole("combobox",{name:"查看主题",exact:true}).selectOption("data");
+  assert.equal(await overview.getByRole("region",{name:"主题关联项目"}).getByRole("button").count(),1);
+  await scope.selectOption("theme:data");
   await overview.getByText("本地机房需求已协调",{exact:true}).first().waitFor();
-  assert.equal(await list.getByRole("button").count(),2);
+  assert.equal(await overview.getByRole("region",{name:"主题关联项目"}).getByRole("button").count(),2);
   assert.equal(await overview.getByRole("button",{name:"共用技术方案.docx · 打开原文件",exact:true}).count(),1);
   assert.equal(await overview.getByRole("button",{name:"产品体验优化 · 周例会",exact:true}).count(),1);
   await overview.getByText("主题设置",{exact:true}).click();
@@ -53,11 +52,11 @@ try {
   await overview.getByRole("heading",{name:"数据中心合作",exact:true}).waitFor();
   await mkdir(".tmp/ui-verification",{recursive:true});
   await page.screenshot({path:".tmp/ui-verification/theme-overview.png"});
-  await list.getByRole("button",{name:/海外数据中心合作/}).click();
+  await scope.selectOption("project:p");
   await themes.getByRole("button",{name:"设置主题",exact:true}).click();
   await themes.getByRole("checkbox",{name:"出海",exact:true}).uncheck();
-  await list.getByRole("button",{name:/本地数据中心/}).click();
-  await list.getByRole("button",{name:/海外数据中心合作/}).click();
+  await scope.selectOption("project:q");
+  await scope.selectOption("project:p");
   assert.equal(await themes.getByRole("checkbox",{name:"出海",exact:true}).isChecked(),false,"theme selection draft survives switching projects");
   await page.evaluate(()=>{window.__fixture.failTheme=true;});
   await themes.getByRole("button",{name:"保存主题",exact:true}).click();
@@ -68,9 +67,9 @@ try {
   await page.waitForFunction(()=>window.__fixture.work.projects[0].themeIds.length===1);
   assert.equal(await page.evaluate(()=>window.__fixture.hub.resources.length),1,"removing a theme never deletes shared files");
   await page.getByRole("button",{name:"周报",exact:true}).click();
-  const report=page.getByRole("dialog",{name:"生成周报"});
+  const report=page.getByRole("region",{name:"周报工作区"});
   await report.locator(".report-sources").first().getByRole("checkbox",{name:"纳入周报：日常审批协调完成",includeHidden:true}).waitFor({state:"attached"});
-  await report.getByRole("combobox",{name:"周报主题",exact:true}).selectOption("data");
+  await report.getByRole("combobox",{name:"周报范围",exact:true}).selectOption("theme:data");
   await page.waitForFunction(()=>window.__fixture.workCalls.some(c=>c.action==="report_material" && c.args.themeId==="data"));
   await report.getByRole("button",{name:"整理草稿",exact:true}).click();
   await report.getByRole("textbox",{name:"周报正文",exact:true}).waitFor();
@@ -80,7 +79,7 @@ try {
   assert.ok(!saved.sources.some(s=>s.id==="daily" || s.id==="er"));
   assert.equal(saved.sources.filter(s=>s.id==="m1").length,1);
   await page.evaluate(()=>{window.__fixture.work.themes[1].name="基础设施";window.__fixture.work.projects[0].themeIds=[];window.__fixture.emit("zhiji://workbench-changed");});
-  await report.getByRole("combobox",{name:"周报主题"}).getByRole("option",{name:"基础设施",exact:true}).waitFor({state:"attached"});
+  await report.getByRole("combobox",{name:"周报范围"}).getByRole("option",{name:"基础设施",exact:true}).waitFor({state:"attached"});
   assert.equal(await report.locator(".report-saved-heading").getByText(/主题：数据中心合作/).count(),1,"saved theme name is a snapshot");
   assert.deepEqual(await page.evaluate(()=>window.__fixture.reports[0].sources),saved.sources);
   await page.setViewportSize({width:400,height:850});

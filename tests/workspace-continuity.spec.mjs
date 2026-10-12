@@ -25,7 +25,7 @@ const page = await browser.newPage({ viewport: { width: 1200, height: 700 }, loc
 const errors = [];
 page.on("pageerror", e => errors.push(e.message));
 await page.addInitScript({ content: `(${installFixture.toString()})(); (${seed.toString()})();` });
-const nav = name => page.getByRole("button", { name, exact: true });
+const nav = name => name === "工作记录" ? { click:async () => {await page.getByRole("navigation",{name:"主导航"}).getByRole("button",{name:"工作台",exact:true}).click();await page.getByRole("button",{name,exact:true}).click();} } : page.getByRole("button", { name, exact: true });
 const input = page.getByRole("textbox", { name: "工作内容", exact: true });
 const edit = index => page.getByRole("button", { name: `编辑记录：第${index}项旧进展：整理访谈和汇报材料。`, exact: true });
 const scrollTo = top => page.locator(".main-content").evaluate((el, y) => { el.scrollTop = y; }, top);
@@ -41,7 +41,7 @@ try {
   const hub = page.getByRole("region", { name: "项目详情" });
   await hub.getByRole("heading", { name: "年度材料", exact: true }).waitFor();
   await atPosition(0);
-  await hub.getByRole("tab", { name: "活动", exact: true }).click();
+  await hub.getByRole("tab", { name: "会议与活动", exact: true }).click();
   await hub.getByText("第20场调研", { exact: true }).waitFor();
   await scrollTo(600); await atPosition(600);
   await nav("工作记录").click(); await atPosition(980);
@@ -132,7 +132,7 @@ try {
   await row.getByRole("button", { name: /^编辑记录/ }).click();
   await page.screenshot({ path: ".tmp/ui-verification/workspace-continuity-journal.png", animations: "disabled" });
   await page.setViewportSize({ width: 400, height: 700 });
-  await nav("展开导航").waitFor();
+  await page.getByRole("navigation",{name:"主导航"}).getByRole("button",{name:"周报",exact:true}).waitFor();
   await page.screenshot({ path: ".tmp/ui-verification/workspace-continuity-journal-narrow.png", animations: "disabled" });
   const fit = await page.locator(".work-journal").evaluate(el => {
     const right = el.getBoundingClientRect().right;

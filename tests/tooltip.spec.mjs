@@ -73,7 +73,7 @@ try {
   }));
   assert.equal(light.visibility, "visible");
   assert.equal(light.opacity, "1");
-  assert.equal(light.text, "复制完整原文到剪贴板");
+  assert.equal(light.text, "复制智能纪要全文到剪贴板");
   assert.equal(light.bg, "rgb(43, 43, 43)");
   assert.equal(light.fg, "rgb(255, 255, 255)");
   // 视口级截图（fullPage 会重置 hover 状态，看不到气泡）
@@ -117,6 +117,7 @@ try {
   });
 
   // 5. 待办行的「来源」也图标化并带提示
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "工作台", exact: true }).click();
   await page.getByRole("button", { name: "行动待办", exact: true }).click();
   const source = page.locator("button.task-source.icon-only").first();
   await source.waitFor();
@@ -139,6 +140,7 @@ try {
   // 7. 说话人行「修改这段文字」：补上原先缺失的 aria-label，且 hover 显隐机制未被包裹层破坏。
   // 回到会议资料后先前选中的会议仍在详情面板，无需再点列表项。
   await page.getByRole("button", { name: "会议资料", exact: true }).click();
+  await page.getByRole("button",{name:/^原文校对/}).click();
   await page.locator(".speaker-row:visible").first().waitFor();
   // 转写面板在 DOM 里可能同时存在宽/窄两份副本，断言一律限定可见实例
   const editSeg = page.locator(".speaker-row:visible .speaker-row-content .icon-btn").first();
@@ -155,6 +157,7 @@ try {
   assert.equal(await bubbleOf(editSeg).evaluate(el => el.textContent.trim()), "修改这段文字");
 
   // 8. 工作记录行「编辑」按钮图标化 + 气泡
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "工作台", exact: true }).click();
   await page.getByRole("button", { name: "工作记录", exact: true }).click();
   await page.getByRole("textbox", { name: "工作内容" }).fill("记录一条用于验证提示的进展");
   await page.getByRole("button", { name: "保存记录", exact: true }).click();

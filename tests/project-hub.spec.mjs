@@ -24,7 +24,7 @@ try {
   await hub.getByRole("textbox",{name:"项目阶段"}).fill("初稿评审");
   await hub.getByRole("button",{name:"保存目标与阶段"}).click();
   await hub.getByText("项目目标已保存",{exact:true}).waitFor();
-  await hub.getByRole("tab",{name:"活动",exact:true}).click();
+  await hub.getByRole("tab",{name:"会议与活动",exact:true}).click();
   await hub.getByText("添加活动",{exact:true}).click();
   await hub.getByRole("textbox",{name:"活动名称"}).fill("成果评审");
   await hub.getByRole("combobox",{name:"活动类型"}).selectOption("review");
@@ -58,6 +58,7 @@ try {
   await hub.getByText("进展已保存，将按实际发生日期进入周报材料",{exact:true}).waitFor();
   const entry=await page.evaluate(()=>window.__fixture.work.entries[0]);
   assert.equal(entry.status,"waiting");assert.ok(entry.activityId);assert.ok(entry.resourceId);
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "工作台", exact: true }).click();
   await page.getByRole("button",{name:"工作记录",exact:true}).click();
   await page.getByRole("button",{name:"修改历史",exact:true}).click();
   const history=page.getByRole("dialog",{name:"工作记录修改历史"});
@@ -66,7 +67,7 @@ try {
   await page.getByRole("button",{name:"项目",exact:true}).click();
   await hub.getByRole("textbox",{name:"项目进展内容"}).fill("明天继续核对数据");
   await chooseProject("成果汇报");
-  await hub.getByRole("tab",{name:"活动",exact:true}).click();
+  await hub.getByRole("tab",{name:"会议与活动",exact:true}).click();
   await hub.getByText("添加活动",{exact:true}).click();
   await hub.getByRole("combobox",{name:"复用现有活动"}).selectOption({label:"成果评审"});
   await hub.getByRole("button",{name:"关联现有活动"}).click();
@@ -94,9 +95,8 @@ try {
   await page.screenshot({path:".tmp/ui-verification/project-hub-narrow.png",fullPage:true});
   await page.setViewportSize({width:1440,height:1000});
   await page.getByRole("button",{name:"工作台",exact:true}).click();
-  await page.getByRole("button",{name:"生成周报",exact:true}).click();
-  const report=page.getByRole("dialog",{name:"生成周报"});
-  await report.getByText(/待汇总材料 ·/).click();
+  await page.getByRole("navigation",{name:"主导航"}).getByRole("button",{name:"周报",exact:true}).click();
+  const report=page.getByRole("region",{name:"周报工作区"});
   const checks=report.getByRole("checkbox");
   const count=await checks.count();assert.ok(count>1);
   for(let i=1;i<count;i++) await checks.nth(i).uncheck();

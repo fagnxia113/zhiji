@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { Project, WorkEntry } from "../../workbench";
 import type { Workspace } from "../../types";
 import { statuses } from "../../workbench";
@@ -17,12 +18,12 @@ export type Hub = {
 export type ProjectWorkspaceProps = {
   project: Project; workspace: Workspace; entries?: WorkEntry[];
   projectLinks?: Record<string, string>; onChanged: () => Promise<boolean>;
-  onMeeting?: (id: string) => void;
+  onMeeting?: (id: string) => void; meetingContent?: ReactNode;
 };
 export const emptyHub: Hub = { activities: [], resources: [], activityLinks: [], resourceLinks: [], resourceActivities: [], profiles: [] };
 export const activityKinds: Record<string, string> = { meeting: "会议", research: "调研", training: "培训", review: "评审", other: "其他活动" };
 export const roles: Record<string, string> = { reference: "参考资料", process: "过程记录", output: "工作产出" };
-export const tabs = { overview: "概览", resources: "资料", activities: "活动", progress: "进展" };
+export const tabs = { progress: "进展", activities: "会议与活动", resources: "资料" };
 export type HubTab = keyof typeof tabs;
 
 export function progressDraft(projectId: string) {

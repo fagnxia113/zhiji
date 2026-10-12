@@ -22,7 +22,7 @@ try {
   await page.goto(process.env.TEST_URL || "http://127.0.0.1:1422");
   await page.getByRole("region", { name: "继续上次项目" }).getByRole("button", { name: "继续项目" }).click();
   const hub = page.getByRole("region", { name: "项目详情" });
-  await hub.getByRole("tab", { name: "概览", exact: true }).waitFor();
+  await hub.getByRole("tab", { name: "进展", exact: true }).waitFor();
   await page.getByRole("button", { name: "收藏当前项目", exact: true }).click();
   const switchProject = page.getByRole("button", { name: /^切换项目/ });
   await switchProject.click();

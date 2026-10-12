@@ -15,6 +15,7 @@ await page.addInitScript({ content: `(${installFixture.toString()})(); (${seed.t
 
 try {
   await page.goto(process.env.TEST_URL || "http://127.0.0.1:1422");
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "工作台", exact: true }).click();
   await page.getByRole("button", { name: "行动待办", exact: true }).click();
   const scope = page.getByRole("group", { name: "待办范围", exact: true });
   await scope.getByRole("button", { name: /^今天到期/ }).click();
