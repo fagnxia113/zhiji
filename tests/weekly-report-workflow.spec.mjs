@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { installFixture } from "./workbench-fixture.mjs";
 
 function installReportScenario() {
@@ -43,9 +44,12 @@ function installReportScenario() {
 
 const browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || "chrome", headless: true });
 const page = await browser.newPage({ viewport: { width: 1200, height: 800 }, locale: "zh-CN", timezoneId: "Asia/Shanghai" });
-const errors = []; page.on("pageerror", e => errors.push(e.message));
-await page.addInitScript(installFixture);
-await page.addInitScript(installReportScenario);
+const consoleErrors = []; const failedRequests = [];
+page.on("console", message => { if (message.type() === "error") consoleErrors.push(message.text()); });
+page.on("requestfailed", request => failedRequests.push({ url: request.url(), failure: request.failure() }));
+const errors = []; page.on("pageerror", e => { errors.push(e.message); console.error("Report page error:", e.message); });
+// Separate init scripts have no guaranteed order; the scenario needs the IPC fixture.
+await page.addInitScript({ content: `(${installFixture.toString()})(); (${installReportScenario.toString()})();` });
 try {
   await page.goto(process.env.TEST_URL || "http://127.0.0.1:1422");
   await page.getByRole("heading", { name: "工作台", exact: true }).waitFor();
@@ -153,4 +157,21 @@ try {
   assert.ok(aiBounds.width >= 140 && aiBounds.height < 48 && Math.abs(aiBounds.y - draftBounds.y) < 1, `narrow generation buttons remain readable on one row: ${JSON.stringify({ draftBounds, aiBounds })}`);
   assert.deepEqual(errors, []);
   console.log("PASS: report scope identity, material loading/empty/error/retry, archive retry, dirty guards, preserved exclusions, zero-selection guard, synchronous generate/save locks, narrow layout.");
+} catch (error) {
+  const directory = new URL("../.tmp/ui-verification/", import.meta.url);
+  await mkdir(directory, { recursive: true });
+  const diagnostics = await page.evaluate(() => ({
+    url: location.href,
+    body: document.body.innerText,
+    fixtureInstalled: !!window.__fixture,
+    scenarioInstalled: !!window.__reportScenario,
+    ipcCalls: window.__fixture?.calls,
+    workCalls: window.__fixture?.workCalls,
+  })).catch(cause => ({ captureError: String(cause) }));
+  console.error("Report failure diagnostics:", JSON.stringify({ errors, consoleErrors, failedRequests, ...diagnostics }));
+  await Promise.allSettled([
+    page.screenshot({ path: fileURLToPath(new URL("weekly-report-failure.png", directory)), fullPage: true }),
+    writeFile(new URL("weekly-report-failure.json", directory), JSON.stringify({ error: String(error), errors, consoleErrors, failedRequests, ...diagnostics }, null, 2)),
+  ]);
+  throw error;
 } finally { await browser.close(); }
