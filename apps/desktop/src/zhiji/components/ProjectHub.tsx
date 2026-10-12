@@ -13,9 +13,9 @@ export function ProjectHub(props: ProjectWorkspaceProps) {
   const model = useProjectWorkspace(props);
   const { project, loading, busy, error, notice, catalogLoading, catalogError, loadCatalog, retry, cacheError, view, hubElement, tabButtons, focused, selectedResource, changeTab, toggleFocus } = model;
   return <section ref={hubElement} className="project-hub" aria-label="项目详情">
-    <header><h2>{project.name}</h2><span>{project.archived ? "已归档" : "进行中"}</span></header>
+    <div className="project-identity"><header><h2>{project.name}</h2><span>{project.archived ? "已归档" : "进行中"}</span></header>
     <ProjectThemes project={project} />
-    <ProjectSettings model={model} />
+    <ProjectSettings model={model} /></div>
     {error && <div className="qa-error" role="alert">{error}<button type="button" disabled={busy} onClick={() => void retry()}>重新读取</button></div>}
     {notice && <p role="status">{notice}</p>}
     {cacheError && <p role="alert" className="qa-error">{cacheError}</p>}
@@ -30,9 +30,19 @@ export function ProjectHub(props: ProjectWorkspaceProps) {
     <div role="tabpanel" id={`project-${project.id}-panel-activities`} aria-labelledby={`project-${project.id}-tab-activities`} hidden={view.tab !== "activities"}><ProjectActivities model={model} /></div>
     <div className={`hub-resources-panel ${selectedResource ? "has-selection" : ""}`} role="tabpanel" id={`project-${project.id}-panel-resources`} aria-labelledby={`project-${project.id}-tab-resources`} hidden={view.tab !== "resources"}><ProjectResources model={model} /></div>
     <div role="tabpanel" id={`project-${project.id}-panel-progress`} aria-labelledby={`project-${project.id}-tab-progress`} hidden={view.tab !== "progress"}>
-      <section className="project-current-state" aria-label="项目目前进展"><small>{model.recent[0] ? `最近确认 · ${model.recent[0].occurredOn}` : "目前进展"}</small><h3>{model.recent[0]?.content || "尚未记录实际进展"}</h3>{model.hub.profiles[0]?.goal && <p>目标：{model.hub.profiles[0].goal}</p>}{model.hub.profiles[0]?.stage && <p>阶段：{model.hub.profiles[0].stage}</p>}{model.tasks.length > 0 && <div className="project-next-actions"><small>待跟进</small>{model.tasks.slice(0,3).map(task => <p key={task.id}>{task.title}{task.owner ? ` · ${task.owner}` : ""}{task.dueDate ? ` · ${task.dueDate}` : ""}</p>)}</div>}</section>
-      {!focused && <ProjectProgress model={model} />}
-      <div hidden={focused}><ProjectProgressHistory model={model} /></div>
+      <section className="project-current-state" aria-label="项目目前进展">
+        <div className="project-state-main">
+          <div className="project-state-heading"><h3>目前进展</h3><small>{model.recent[0] ? `最近确认 · ${model.recent[0].occurredOn}` : "尚未记录"}</small></div>
+          <p className="project-state-text">{model.recent[0]?.content || "尚未记录实际进展"}</p>
+          {model.hub.profiles[0]?.goal && <p>目标：{model.hub.profiles[0].goal}</p>}
+          {model.hub.profiles[0]?.stage && <p>阶段：{model.hub.profiles[0].stage}</p>}
+        </div>
+        {model.tasks.length > 0 && <aside className="project-next-actions" aria-label="项目待跟进"><h3>待跟进</h3>{model.tasks.slice(0,3).map(task => <div key={task.id}><strong>{task.title}</strong><small>{task.owner || "未设负责人"}{task.dueDate ? ` · ${task.dueDate}` : ""}</small></div>)}</aside>}
+      </section>
+      <div className="project-progress-layout" hidden={focused}>
+        <aside className="project-update" aria-label="记录项目进展">{!focused && <ProjectProgress model={model} />}</aside>
+        <div className="project-history"><ProjectProgressHistory model={model} /></div>
+      </div>
     </div>
     {focused && createPortal(<Dialog ariaLabel="专注记录项目进展" className="progress-focus" onClose={toggleFocus} closeOnBackdrop={false}>
       <p className="progress-focus-project">{project.name}</p>
